@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Board Tracker{% endblock %}</title>
+  <link rel="stylesheet" href="{{ path('/static/style.css') }}">
+</head>
+<body>
+<header class="topbar">
+  <a class="brand" href="{{ path('/') }}">Board Tracker</a>
+  {% if user %}
+  <nav>
+    <a href="{{ path('/') }}">Dashboard</a>
+    <a href="{{ path('/me') }}">My boards</a>
+    {% if user.is_admin %}<a href="{{ path('/admin') }}">Admin</a>{% endif %}
+  </nav>
+  <form class="whoami" method="post" action="{{ path('/logout') }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <span>{{ user.email }}</span>
+    <button class="link">Sign out</button>
+  </form>
+  {% endif %}
+</header>
+<main>
+  {% if dev_login %}<p class="banner warn">Dev login is on. Don't use this in production.</p>{% endif %}
+  {% if flash %}<p class="banner {{ flash.kind }}">{{ flash.message }}</p>{% endif %}
+  {% block content %}{% endblock %}
+</main>
+</body>
+</html>

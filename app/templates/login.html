@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% block title %}Sign in · Board Tracker{% endblock %}
+{% block content %}
+<section class="narrow">
+  <h1>Sign in</h1>
+  <p>Use your @berkeley.edu Google account.</p>
+  {% if error %}<p class="banner error">{{ error }}</p>{% endif %}
+  {% if dev_login %}
+    <a class="button" href="{{ path('/dev-login') }}">Dev login</a>
+  {% else %}
+    <a class="button" href="{{ path('/login/google') }}">Sign in with Google</a>
+  {% endif %}
+</section>
+{% endblock %}
