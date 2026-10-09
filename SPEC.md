@@ -13,7 +13,7 @@ People sign in with Berkeley Google accounts and check boards out and back in; a
   Refuse to start if DEV_LOGIN is set and ENV=production.
 
 ## Data
-- Board: id, name, type (Sophia Lake / Bora Lake / FPGA / other; admins can add types), serial,
+- Board: id, name, type (shown in order: Bora Lake, Sophia Lake, Other; admins can add types), serial,
   chip mounted, location, notes, retired flag
 - Checkout: board, user email, user name, checked_out_at, returned_at, returned_by, notes
   (no due dates: the app tracks who has what and since when)

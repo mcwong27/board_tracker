@@ -97,11 +97,11 @@ def test_retired_board_cannot_be_checked_out(client, db, board_id):
 
 
 def test_dashboard_type_filter(client, db, board_id):
-    fpga = db.scalar(select(BoardType).where(BoardType.name == "FPGA"))
-    db.add(Board(name="DE10-Nano", type=fpga))
+    other = db.scalar(select(BoardType).where(BoardType.name == "Other"))
+    db.add(Board(name="DE10-Nano", type=other))
     db.commit()
     login(client, "oski@berkeley.edu")
-    page = client.get(f"/?type={fpga.id}").text
+    page = client.get(f"/?type={other.id}").text
     assert "DE10-Nano" in page and "BL-07" not in page
     page = client.get("/").text
     assert "DE10-Nano" in page and "BL-07" in page

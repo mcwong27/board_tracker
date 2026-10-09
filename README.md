@@ -1,7 +1,7 @@
 # Lab Board Checkout Tracker
 
-A small web app for tracking who has which lab board (Sophia Lake and Bora Lake carrier boards,
-FPGAs, and so on). People sign in with their @berkeley.edu Google account to check boards out and
+A small web app for tracking who has which lab board (Bora Lake and Sophia Lake carrier boards,
+and others). People sign in with their @berkeley.edu Google account to check boards out and
 back in. Admins manage the inventory and can export everything as CSV.
 
 - **Dashboard:** every active board with its status, holder, and checkout time, filterable by type

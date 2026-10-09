@@ -25,7 +25,7 @@ class Forbidden(ServiceError):
 
 
 def board_types(db: Session) -> list[BoardType]:
-    return list(db.scalars(select(BoardType).order_by(BoardType.name)))
+    return list(db.scalars(select(BoardType).order_by(BoardType.sort_order, BoardType.name)))
 
 
 def boards_with_status(
@@ -37,7 +37,7 @@ def boards_with_status(
         .join(Board.type)
         .outerjoin(Checkout, and_(Checkout.board_id == Board.id, Checkout.returned_at.is_(None)))
         .options(joinedload(Board.type))
-        .order_by(BoardType.name, Board.name)
+        .order_by(BoardType.sort_order, BoardType.name, Board.name)
     )
     if not include_retired:
         stmt = stmt.where(Board.retired.is_(False))

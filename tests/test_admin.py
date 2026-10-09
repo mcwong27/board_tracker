@@ -70,7 +70,7 @@ def test_add_and_edit_board(client, db):
 
 def test_board_validation(client, db, board):
     login(client, ADMIN)
-    dup = {"name": "SL-01", "type_id": type_id(db, "FPGA")}
+    dup = {"name": "SL-01", "type_id": type_id(db, "Other")}
     resp = post(client, "/admin/boards/new", dup, page="/admin")
     assert resp.status_code == 409
     assert "already exists" in resp.text

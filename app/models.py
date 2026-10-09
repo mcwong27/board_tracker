@@ -2,7 +2,7 @@
 
 from datetime import UTC, datetime
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Index, String, Text, text
+from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, String, Text, text
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
@@ -20,6 +20,8 @@ class BoardType(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     name: Mapped[str] = mapped_column(String(100), unique=True)
+    # Display order: Bora Lake, Sophia Lake, then admin-added types (alphabetical), Other last.
+    sort_order: Mapped[int] = mapped_column(Integer, default=100, server_default="100")
 
     boards: Mapped[list["Board"]] = relationship(back_populates="type")
 
