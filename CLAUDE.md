@@ -1,20 +1,31 @@
 # Lab Board Checkout Tracker
 
-FastAPI + Jinja web app for tracking who has which lab board. Berkeley Google sign-in;
-admins manage inventory. See SPEC.md for requirements.
+FastAPI + Jinja (server-rendered, no JS framework) app for tracking who has which lab board.
+Berkeley-only Google sign-in; admins (ADMIN_EMAILS) manage inventory. Requirements: SPEC.md.
+Setup, OAuth, deployment, and backups: README.md.
 
 ## Commands
 - Install deps: `uv sync`
+- Run locally: `DEV_LOGIN=1 ENV=development ADMIN_EMAILS=you@berkeley.edu uv run uvicorn --factory app.main:create_app --reload`
 - Migrate DB: `uv run alembic upgrade head`
+- New migration: `uv run alembic revision --autogenerate -m "..."` (review the generated file)
 - Test: `uv run pytest`
 - Lint/format: `uv run ruff check . && uv run ruff format --check .` (fix: `uv run ruff check --fix . && uv run ruff format .`)
+- Docker: `docker compose up -d --build`; backups via `scripts/backup.sh` / `scripts/restore.sh`
 
 ## Layout
-- `app/config.py` settings from env vars (validated at startup)
-- `app/models.py` SQLAlchemy models; `migrations/` Alembic (add a revision for every schema change)
-- `tests/` pytest; each test gets a fresh migrated SQLite file (`tests/conftest.py`)
+- `app/main.py` app factory (`create_app(settings)`), middleware, error handlers
+- `app/config.py` settings from env vars; `Settings.validate()` refuses unsafe config
+- `app/auth.py` identity validation (`validate_identity`), `CurrentUser` / `AdminUser` dependencies
+- `app/services.py` all business rules; routes in `app/routes/` stay thin
+- `app/routes/admin.py` every route here gets `require_admin` from the router
+- `app/csrf.py` every POST route needs `dependencies=[Depends(verify_csrf)]` and forms need the hidden `csrf_token`
+- `app/urls.py` + `path()` template global: build URLs with these so a BASE_URL path prefix works
+- `migrations/` Alembic; `tests/` pytest (each test gets a freshly migrated SQLite file)
 
 ## Invariants
 - One active checkout per board is enforced by the partial unique index
   `uq_checkout_active_board`; don't rely on UI checks alone.
-- Store naive UTC datetimes (`app.models.utcnow`).
+- Sign-in is restricted server-side to verified exact @berkeley.edu emails with `hd=berkeley.edu`.
+- Only the holder or an admin may return a board (`services.return_board`).
+- Store naive UTC datetimes (`app.models.utcnow`); templates show local time via `|localtime`.
