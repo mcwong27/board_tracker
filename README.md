@@ -18,10 +18,11 @@ Stack: FastAPI, Jinja templates, SQLite (SQLAlchemy + Alembic), managed with [uv
 Requires [uv](https://docs.astral.sh/uv/getting-started/installation/) (`brew install uv`).
 
 ```sh
+cd board_tracker                          # run everything from the project folder
 uv sync                                   # install dependencies into .venv
-uv run alembic upgrade head               # create/migrate data/tracker.db
 
-# Run with the dev login form (no Google setup needed):
+# Run with the dev login form (no Google setup needed). The app creates or upgrades
+# data/tracker.db on startup.
 DEV_LOGIN=1 ENV=development ADMIN_EMAILS=you@berkeley.edu \
   uv run uvicorn --factory app.main:create_app --reload
 ```
@@ -46,10 +47,10 @@ Edit `app/models.py`, then generate and review a migration:
 
 ```sh
 uv run alembic revision --autogenerate -m "describe the change"
-uv run alembic upgrade head
 ```
 
-The Docker container runs `alembic upgrade head` automatically on start.
+The app applies pending migrations automatically when it starts (locally and in Docker), or
+run `uv run alembic upgrade head` yourself.
 
 ---
 

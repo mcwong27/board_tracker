@@ -34,3 +34,15 @@ def test_from_env(monkeypatch):
     assert s.dev_login
     assert s.root_path == "/boards"
     assert s.https
+
+
+def test_app_creates_schema_on_startup(tmp_path):
+    from fastapi.testclient import TestClient
+
+    from app.main import create_app
+
+    db_path = str(tmp_path / "fresh" / "tracker.db")
+    app = create_app(Settings(dev_login=True, secret_key="x", database_path=db_path))
+    with TestClient(app) as client:
+        assert client.get("/login").status_code == 200
+    app.state.engine.dispose()

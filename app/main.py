@@ -12,6 +12,7 @@ from starlette.middleware.sessions import SessionMiddleware
 from app.auth import LoginRequired, make_oauth
 from app.config import Settings
 from app.db import make_engine, make_sessionmaker
+from app.migrate import upgrade
 from app.routes import admin, auth, boards
 from app.templating import render
 from app.urls import app_path, redirect, route_path
@@ -31,6 +32,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         redoc_url=None,
         openapi_url=None,
     )
+    upgrade(settings.database_path)  # create/upgrade the schema so a fresh checkout just runs
     app.state.settings = settings
     app.state.engine = make_engine(settings.database_path)
     app.state.sessionmaker = make_sessionmaker(app.state.engine)

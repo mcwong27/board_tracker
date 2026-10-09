@@ -7,7 +7,7 @@ Setup, OAuth, deployment, and backups: README.md.
 ## Commands
 - Install deps: `uv sync`
 - Run locally: `DEV_LOGIN=1 ENV=development ADMIN_EMAILS=you@berkeley.edu uv run uvicorn --factory app.main:create_app --reload`
-- Migrate DB: `uv run alembic upgrade head`
+- Migrate DB: automatic on app startup (`app/migrate.py`); manual: `uv run alembic upgrade head`
 - New migration: `uv run alembic revision --autogenerate -m "..."` (review the generated file)
 - Test: `uv run pytest`
 - Lint/format: `uv run ruff check . && uv run ruff format --check .` (fix: `uv run ruff check --fix . && uv run ruff format .`)

@@ -1,28 +1,18 @@
 import re
-from pathlib import Path
 
 import pytest
-from alembic import command
-from alembic.config import Config
 from fastapi.testclient import TestClient
 
 from app.config import Settings
 from app.db import make_engine, make_sessionmaker
 from app.main import create_app
-
-ROOT = Path(__file__).resolve().parent.parent
-
-
-def migrate(database_path: str) -> None:
-    cfg = Config(str(ROOT / "alembic.ini"))
-    cfg.attributes["database_path"] = database_path
-    command.upgrade(cfg, "head")
+from app.migrate import upgrade
 
 
 @pytest.fixture
 def db_path(tmp_path) -> str:
     path = str(tmp_path / "test.db")
-    migrate(path)
+    upgrade(path)
     return path
 
 
