@@ -1,4 +1,36 @@
 {% extends "base.html" %}
 {% block content %}
-<h1>Boards</h1>
+<div class="row" style="justify-content: space-between">
+  <h1>Boards</h1>
+  <span class="muted">{{ available }} of {{ rows|length }} available</span>
+</div>
+<nav class="pills" aria-label="Filter by type">
+  <a href="{{ path('/') }}" {% if selected_type is none %}aria-current="page"{% endif %}>All</a>
+  {% for t in types %}
+  <a href="{{ path('/?type=%d' % t.id) }}" {% if selected_type == t.id %}aria-current="page"{% endif %}>{{ t.name }}</a>
+  {% endfor %}
+</nav>
+{% if rows %}
+<div class="table-wrap">
+<table>
+  <thead><tr><th>Board</th><th>Type</th><th>Chip</th><th>Location</th><th>Status</th><th>Holder</th><th>Since</th><th></th></tr></thead>
+  <tbody>
+  {% for board, active in rows %}
+  <tr>
+    <td><a href="{{ path('/boards/%d' % board.id) }}">{{ board.name }}</a></td>
+    <td>{{ board.type.name }}</td>
+    <td>{{ board.chip_mounted }}</td>
+    <td>{{ board.location }}</td>
+    <td>{% include "_status.html" %}</td>
+    <td>{% if active %}{{ active.user_name or active.user_email }}{% if active.user_name and active.user_name != active.user_email %}<br><span class="muted">{{ active.user_email }}</span>{% endif %}{% endif %}</td>
+    <td>{% if active %}{{ active.checked_out_at|localtime }}{% endif %}</td>
+    <td>{% with back = '/' ~ ('?type=%d' % selected_type if selected_type else '') %}{% include "_actions.html" %}{% endwith %}</td>
+  </tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+{% else %}
+<p class="muted">No boards yet.{% if user.is_admin %} <a href="{{ path('/admin/boards/new') }}">Add one</a>.{% endif %}</p>
+{% endif %}
 {% endblock %}

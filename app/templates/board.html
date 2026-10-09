@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+{% block title %}{{ board.name }} · Board Tracker{% endblock %}
+{% block content %}
+<div class="row">
+  <h1>{{ board.name }}</h1>
+  {% include "_status.html" %}
+  {% if user.is_admin %}<a href="{{ path('/admin/boards/%d/edit' % board.id) }}">Edit</a>{% endif %}
+</div>
+{% if error %}<p class="banner error">{{ error }}</p>{% endif %}
+
+<dl class="details">
+  <dt>Type</dt><dd>{{ board.type.name }}</dd>
+  <dt>Serial</dt><dd>{{ board.serial or '—' }}</dd>
+  <dt>Chip mounted</dt><dd>{{ board.chip_mounted or '—' }}</dd>
+  <dt>Location</dt><dd>{{ board.location or '—' }}</dd>
+  {% if board.notes %}<dt>Notes</dt><dd class="prewrap">{{ board.notes }}</dd>{% endif %}
+  {% if active %}
+  <dt>Held by</dt><dd>{{ active.user_name }} &lt;{{ active.user_email }}&gt; since {{ active.checked_out_at|localtime }}</dd>
+  {% if active.notes %}<dt>Checkout note</dt><dd class="prewrap">{{ active.notes }}</dd>{% endif %}
+  {% endif %}
+</dl>
+
+{% set back = '/boards/%d' % board.id %}
+{% if not board.retired and active is none %}
+<h2>Check out</h2>
+<form method="post" action="{{ path('/boards/%d/checkout' % board.id) }}" class="stack">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+  <label>Note (optional) <input type="text" name="notes" maxlength="500" placeholder="e.g. for the lab 3 demo"></label>
+  <div><button>Check out {{ board.name }}</button></div>
+</form>
+{% elif active %}
+<p>{% include "_actions.html" %}</p>
+{% endif %}
+
+<h2>History</h2>
+{% if history %}
+<div class="table-wrap">
+<table>
+  <thead><tr><th>Who</th><th>Checked out</th><th>Returned</th><th>Note</th></tr></thead>
+  <tbody>
+  {% for c in history %}
+  <tr>
+    <td>{{ c.user_name or c.user_email }}<br><span class="muted">{{ c.user_email }}</span></td>
+    <td>{{ c.checked_out_at|localtime }}</td>
+    <td>{% if c.returned_at %}{{ c.returned_at|localtime }}{% if c.returned_by and c.returned_by != c.user_email %}<br><span class="muted">by {{ c.returned_by }}</span>{% endif %}{% else %}<span class="badge out">Out</span>{% endif %}</td>
+    <td class="prewrap">{{ c.notes }}</td>
+  </tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+{% else %}
+<p class="muted">Never checked out.</p>
+{% endif %}
+{% endblock %}

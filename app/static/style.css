@@ -56,3 +56,8 @@ th { font-size: .8rem; text-transform: uppercase; letter-spacing: .03em; color: 
 dl.details { display: grid; grid-template-columns: max-content 1fr; gap: .3rem 1rem; }
 dl.details dt { color: var(--muted); }
 dl.details dd { margin: 0; }
+.prewrap { white-space: pre-wrap; }
+.pills { display: flex; flex-wrap: wrap; gap: .4rem; margin-bottom: 1rem; }
+.pills a { padding: .2rem .75rem; border: 1px solid var(--line); border-radius: 999px;
+  text-decoration: none; background: var(--card); }
+.pills a[aria-current] { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); }
