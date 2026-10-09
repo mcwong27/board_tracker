@@ -101,3 +101,64 @@ def return_board(db: Session, board: Board, user: User) -> Checkout:
     db.commit()
     db.refresh(checkout)
     return checkout
+
+
+BOARD_FIELDS = ("name", "type_id", "serial", "chip_mounted", "location", "notes")
+
+
+def save_board(db: Session, board: Board | None, form: dict[str, str]) -> Board:
+    """Create (board=None) or update a board from submitted form values."""
+    name = form.get("name", "").strip()
+    if not name:
+        raise ServiceError("Name is required.")
+    try:
+        type_id = int(form.get("type_id", ""))
+    except ValueError:
+        raise ServiceError("Pick a board type.") from None
+    if db.get(BoardType, type_id) is None:
+        raise ServiceError("Pick a board type.")
+
+    if board is None:
+        board = Board()
+        db.add(board)
+    board.name = name
+    board.type_id = type_id
+    for field in ("serial", "chip_mounted", "location", "notes"):
+        setattr(board, field, form.get(field, "").strip())
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise Conflict(f"A board named {name!r} already exists.") from None
+    return board
+
+
+def set_retired(db: Session, board: Board, retired: bool) -> None:
+    if retired and active_checkout(db, board.id) is not None:
+        raise Conflict(f"{board.name} is checked out. Return it before retiring it.")
+    board.retired = retired
+    db.commit()
+
+
+def add_board_type(db: Session, name: str) -> BoardType:
+    name = name.strip()
+    if not name:
+        raise ServiceError("Type name is required.")
+    board_type = BoardType(name=name)
+    db.add(board_type)
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise Conflict(f"Type {name!r} already exists.") from None
+    return board_type
+
+
+def all_checkouts(db: Session) -> list[Checkout]:
+    return list(
+        db.scalars(
+            select(Checkout)
+            .options(joinedload(Checkout.board))
+            .order_by(Checkout.checked_out_at, Checkout.id)
+        )
+    )

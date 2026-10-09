@@ -12,7 +12,7 @@ from starlette.middleware.sessions import SessionMiddleware
 from app.auth import LoginRequired, make_oauth
 from app.config import Settings
 from app.db import make_engine, make_sessionmaker
-from app.routes import auth, boards
+from app.routes import admin, auth, boards
 from app.templating import render
 from app.urls import app_path, redirect, route_path
 
@@ -71,4 +71,5 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     app.include_router(auth.router)
     app.include_router(boards.router)
+    app.include_router(admin.router)
     return app

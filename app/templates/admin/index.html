@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+{% block title %}Admin · Board Tracker{% endblock %}
+{% block content %}
+<div class="row" style="justify-content: space-between">
+  <h1>Admin</h1>
+  <div class="row">
+    <a class="button" href="{{ path('/admin/boards/new') }}">Add board</a>
+    <a href="{{ path('/admin/export/boards.csv') }}">Boards CSV</a>
+    <a href="{{ path('/admin/export/checkouts.csv') }}">Checkout history CSV</a>
+  </div>
+</div>
+{% if error %}<p class="banner error">{{ error }}</p>{% endif %}
+
+<h2>All boards</h2>
+{% if rows %}
+<div class="table-wrap">
+<table>
+  <thead><tr><th>Board</th><th>Type</th><th>Serial</th><th>Status</th><th>Holder</th><th></th></tr></thead>
+  <tbody>
+  {% for board, active in rows %}
+  {% set back = '/admin' %}
+  <tr>
+    <td><a href="{{ path('/boards/%d' % board.id) }}">{{ board.name }}</a></td>
+    <td>{{ board.type.name }}</td>
+    <td>{{ board.serial }}</td>
+    <td>{% include "_status.html" %}</td>
+    <td>{% if active %}{{ active.user_email }}<br><span class="muted">since {{ active.checked_out_at|localtime }}</span>{% endif %}</td>
+    <td class="row">
+      <a href="{{ path('/admin/boards/%d/edit' % board.id) }}">Edit</a>
+      {% if active %}{% include "_actions.html" %}{% endif %}
+      <form class="inline" method="post" action="{{ path('/admin/boards/%d/%s' % (board.id, 'unretire' if board.retired else 'retire')) }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <button class="secondary">{{ 'Restore' if board.retired else 'Retire' }}</button>
+      </form>
+    </td>
+  </tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+{% else %}
+<p class="muted">No boards yet.</p>
+{% endif %}
+
+<h2>Board types</h2>
+<p>{% for t in types %}<span class="badge retired">{{ t.name }}</span> {% endfor %}</p>
+<form method="post" action="{{ path('/admin/types') }}" class="row">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+  <input type="text" name="name" placeholder="New type name" maxlength="100" required>
+  <button>Add type</button>
+</form>
+{% endblock %}

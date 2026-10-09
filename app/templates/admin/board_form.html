@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block title %}{{ 'Edit ' ~ board.name if board else 'Add board' }} · Board Tracker{% endblock %}
+{% block content %}
+<h1>{{ 'Edit ' ~ board.name if board else 'Add board' }}</h1>
+{% if error %}<p class="banner error">{{ error }}</p>{% endif %}
+<form method="post" class="stack"
+      action="{{ path('/admin/boards/%d/edit' % board.id) if board else path('/admin/boards/new') }}">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+  <label>Name <input type="text" name="name" value="{{ values.name }}" maxlength="200" required autofocus></label>
+  <label>Type
+    <select name="type_id" required>
+      <option value="">Choose…</option>
+      {% for t in types %}
+      <option value="{{ t.id }}" {% if values.type_id == t.id|string %}selected{% endif %}>{{ t.name }}</option>
+      {% endfor %}
+    </select>
+  </label>
+  <label>Serial <input type="text" name="serial" value="{{ values.serial }}" maxlength="200"></label>
+  <label>Chip mounted <input type="text" name="chip_mounted" value="{{ values.chip_mounted }}" maxlength="200"></label>
+  <label>Location <input type="text" name="location" value="{{ values.location }}" maxlength="200"></label>
+  <label>Notes <textarea name="notes" rows="4">{{ values.notes }}</textarea></label>
+  <div class="row">
+    <button>{{ 'Save' if board else 'Add board' }}</button>
+    <a href="{{ path('/boards/%d' % board.id) if board else path('/admin') }}">Cancel</a>
+  </div>
+</form>
+{% endblock %}
