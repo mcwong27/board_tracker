@@ -1,6 +1,6 @@
 FROM python:3.12-slim
 
-# sqlite3 CLI for online backups (see README).
+# sqlite3 CLI for online backups (see docs/deployment.md).
 RUN apt-get update \
     && apt-get install -y --no-install-recommends sqlite3 \
     && rm -rf /var/lib/apt/lists/*
@@ -17,7 +17,8 @@ WORKDIR /app
 COPY pyproject.toml uv.lock ./
 RUN uv sync --locked --no-dev --no-install-project
 
-COPY alembic.ini docker-entrypoint.sh ./
+COPY alembic.ini ./
+COPY deploy/docker-entrypoint.sh ./
 COPY migrations ./migrations
 COPY app ./app
 

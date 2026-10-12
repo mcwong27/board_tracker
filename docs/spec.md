@@ -1,7 +1,7 @@
 # Lab Board Checkout Tracker
 
 ## Goal
-Web app for tracking who has which lab boards (Sophia Lake and Bora Lake carrier boards, FPGAs, etc.).
+Web app for tracking who has which lab boards (Bora Lake and Sophia Lake carrier boards, and others).
 People sign in with Berkeley Google accounts and check boards out and back in; admins manage inventory.
 
 ## Auth

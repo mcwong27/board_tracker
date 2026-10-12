@@ -1,6 +1,6 @@
 #!/bin/sh
 # Online backup of the SQLite DB from the running container (safe while the app is serving).
-# Usage: scripts/backup.sh [output-file]    (default: backups/tracker-YYYYmmdd-HHMMSS.db)
+# Usage: deploy/backup.sh [output-file]    (default: backups/tracker-YYYYmmdd-HHMMSS.db)
 set -eu
 cd "$(dirname "$0")/.."
 out="${1:-backups/tracker-$(date +%Y%m%d-%H%M%S).db}"

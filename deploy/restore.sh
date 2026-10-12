@@ -1,9 +1,9 @@
 #!/bin/sh
 # Replace the live DB with a backup file. Stops the app while restoring.
-# Usage: scripts/restore.sh path/to/backup.db
+# Usage: deploy/restore.sh path/to/backup.db
 set -eu
 cd "$(dirname "$0")/.."
-backup="${1:?usage: scripts/restore.sh path/to/backup.db}"
+backup="${1:?usage: deploy/restore.sh path/to/backup.db}"
 [ -f "$backup" ] || { echo "No such file: $backup" >&2; exit 1; }
 backup="$(cd "$(dirname "$backup")" && pwd)/$(basename "$backup")"
 

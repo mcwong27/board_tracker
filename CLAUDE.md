@@ -1,8 +1,8 @@
 # Lab Board Checkout Tracker
 
 FastAPI + Jinja (server-rendered, no JS framework) app for tracking who has which lab board.
-Berkeley-only Google sign-in; admins (ADMIN_EMAILS) manage inventory. Requirements: SPEC.md.
-Setup, OAuth, deployment, and backups: README.md.
+Berkeley-only Google sign-in; admins (ADMIN_EMAILS) manage inventory. Requirements: docs/spec.md.
+Setup: README.md. OAuth: docs/google-oauth.md. Deployment and backups: docs/deployment.md.
 
 ## Commands
 - Install deps: `uv sync`
@@ -11,7 +11,7 @@ Setup, OAuth, deployment, and backups: README.md.
 - New migration: `uv run alembic revision --autogenerate -m "..."` (review the generated file)
 - Test: `uv run pytest`
 - Lint/format: `uv run ruff check . && uv run ruff format --check .` (fix: `uv run ruff check --fix . && uv run ruff format .`)
-- Docker: `docker compose up -d --build`; backups via `scripts/backup.sh` / `scripts/restore.sh`
+- Docker: `docker compose up -d --build`; backups via `deploy/backup.sh` / `deploy/restore.sh`
 
 ## Layout
 - `app/main.py` app factory (`create_app(settings)`), middleware, error handlers
@@ -22,6 +22,7 @@ Setup, OAuth, deployment, and backups: README.md.
 - `app/csrf.py` every POST route needs `dependencies=[Depends(verify_csrf)]` and forms need the hidden `csrf_token`
 - `app/urls.py` + `path()` template global: build URLs with these so a BASE_URL path prefix works
 - `migrations/` Alembic; `tests/` pytest (each test gets a freshly migrated SQLite file)
+- `deploy/` container entrypoint, Caddy example, backup/restore scripts; `docs/` spec and guides
 
 ## Invariants
 - One active checkout per board is enforced by the partial unique index
