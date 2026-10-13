@@ -7,10 +7,11 @@ import {
 } from "../src/services/assets";
 import { importAssets, parseCsv, assetsCsv } from "../src/services/csv";
 import {
-  addFpgaServer, assignToSlots, fpgaPlacements, fpgaTimeline, oversubscribed,
-  placementKey, saveFpgaReservation, setFpgaPlacements, slotsForType, fpgaTypes,
+  addFpgaServer, addFpgaUnit, assignToSlots, capacityKey, deleteFpgaUnit, fpgaCapacity,
+  fpgaTimeline, fpgaTypes, fpgaUnits, oversubscribed, saveFpgaReservation,
+  setFpgaUnitSerial, slotsForType,
 } from "../src/services/fpga";
-import type { FpgaReservation, FpgaServer, User } from "../src/types";
+import type { FpgaReservation, FpgaServer, FpgaUnit, User } from "../src/types";
 import { Conflict, Forbidden, ServiceError } from "../src/types";
 import { applySchema } from "./helpers";
 
@@ -149,12 +150,10 @@ describe("csv", () => {
 });
 
 describe("fpga reservations", () => {
-  async function setup(quantity: number) {
+  async function setup(boards: number) {
     const [type] = await fpgaTypes(db);
     const server = await addFpgaServer(db, "rack2-srv1");
-    if (quantity) {
-      await setFpgaPlacements(db, new Map([[placementKey(type!.id, server.id), quantity]]));
-    }
+    for (let i = 0; i < boards; i++) await addFpgaUnit(db, type!.id, server.id);
     return { type: type!, server };
   }
 
@@ -210,11 +209,42 @@ describe("fpga reservations", () => {
       .resolves.toMatchObject({ project: "X" });
   });
 
-  it("zeroing a count removes the placement", async () => {
+  it("capacity is derived from the boards on record", async () => {
     const { type, server } = await setup(3);
-    expect((await fpgaPlacements(db)).get(placementKey(type.id, server.id))).toBe(3);
-    await setFpgaPlacements(db, new Map([[placementKey(type.id, server.id), 0]]));
-    expect((await fpgaPlacements(db)).size).toBe(0);
+    expect((await fpgaCapacity(db)).get(capacityKey(type.id, server.id))).toBe(3);
+    const [first] = await fpgaUnits(db);
+    await deleteFpgaUnit(db, first!);
+    expect((await fpgaCapacity(db)).get(capacityKey(type.id, server.id))).toBe(2);
+  });
+
+  it("labels a board by its serial, and by position when it has none", async () => {
+    const { type, server } = await setup(2);
+    const [first] = await fpgaUnits(db);
+    await setFpgaUnitSerial(db, first!, "SN-12345");
+    const timeline = await fpgaTimeline(db, "2026-06-01", "2026-06-30");
+    const group = timeline.groups.find((g) => g.fpga_type.id === type.id)!;
+    expect(group.rows.map((r) => r.label)).toEqual(["rack2-srv1 · SN-12345", "rack2-srv1 #2"]);
+    expect(server.name).toBe("rack2-srv1");
+  });
+
+  it("serials are optional but unique", async () => {
+    const { type, server } = await setup(0);
+    const bare = await addFpgaUnit(db, type.id, server.id);
+    expect(bare.serial).toBeNull();
+    // Several unlabelled boards are fine: blank serials don't collide.
+    await addFpgaUnit(db, type.id, server.id);
+    expect((await fpgaUnits(db)).length).toBe(2);
+
+    await addFpgaUnit(db, type.id, server.id, "SN-1");
+    await expect(addFpgaUnit(db, type.id, server.id, "SN-1")).rejects.toThrow(/already on another board/);
+    await expect(addFpgaUnit(db, type.id, server.id, "  SN-1  ")).rejects.toThrow(/already on another board/);
+    await expect(setFpgaUnitSerial(db, bare, "SN-1")).rejects.toThrow(/already on another board/);
+
+    // Clearing a serial frees it for reuse.
+    const labelled = (await fpgaUnits(db)).find((u) => u.serial === "SN-1")!;
+    await setFpgaUnitSerial(db, labelled, "");
+    expect((await fpgaUnits(db)).find((u) => u.id === labelled.id)?.serial).toBeNull();
+    await expect(setFpgaUnitSerial(db, bare, "SN-1")).resolves.toMatchObject({ serial: "SN-1" });
   });
 });
 
@@ -228,7 +258,7 @@ describe("over-subscription maths", () => {
   });
 
   it("ignores bookings that do not overlap", () => {
-    const placements = new Map([[placementKey(1, 1), 1]]);
+    const placements = new Map([[capacityKey(1, 1), 1]]);
     const { flagged, warnings } = oversubscribed(
       [booking(1, "2026-06-01", "2026-06-01"), booking(2, "2026-06-02", "2026-06-02")],
       placements,
@@ -250,7 +280,11 @@ describe("over-subscription maths", () => {
   });
 
   it("sends an all-or-nothing booking to overflow rather than splitting it", () => {
-    const slots = slotsForType(1, new Map([[placementKey(1, 1), 2]]), new Map([[1, server]]));
+    const unit = (id: number): FpgaUnit => ({
+      id, fpga_type_id: 1, server_id: server.id,
+      server: { id: server.id, name: server.name }, serial: null, created_at: "",
+    });
+    const slots = slotsForType(1, [unit(1), unit(2)]);
     const overflow = assignToSlots([booking(1, "2026-06-01", "2026-06-05", 2), booking(2, "2026-06-02", "2026-06-03", 2)], slots);
     expect(overflow.map((r) => r.id)).toEqual([2]);
     expect(slots.every((s) => s.reservations.length === 1)).toBe(true);

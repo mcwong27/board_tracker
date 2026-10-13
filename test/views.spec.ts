@@ -230,7 +230,7 @@ describe("empty states", () => {
       typeCounts: new Map(),
       fpgaTypes: [],
       fpgaServers: [],
-      placements: new Map(),
+      units: [],
     }).toString();
     expect(out).toContain("No assets yet.");
     expect(out).toContain("No types yet. Add one before adding assets.");
@@ -245,11 +245,30 @@ describe("empty states", () => {
       typeCounts: new Map([[1, 3]]),
       fpgaTypes: [{ id: 1, name: "U250" }],
       fpgaServers: [{ id: 2, name: "srv", notes: "" }],
-      placements: new Map([["1:2", 4]]),
+      units: [],
     }).toString();
     expect(out).toContain('title="In use by 3 asset(s)"');
-    expect(out).toContain('name="qty-1-2"');
-    expect(out).toContain('value="4"');
+  });
+
+  it("lists FPGA boards with their serials, and offers to add one", () => {
+    const server = { id: 2, name: "srv", notes: "" };
+    const out = adminPage(ctxFor(admin), {
+      rows: [],
+      types: [],
+      typeCounts: new Map(),
+      fpgaTypes: [{ id: 1, name: "U250" }],
+      fpgaServers: [server],
+      units: [
+        { id: 7, fpga_type_id: 1, server_id: 2, server: { id: 2, name: "srv" }, serial: "SN-1", created_at: "" },
+        { id: 8, fpga_type_id: 1, server_id: 2, server: { id: 2, name: "srv" }, serial: null, created_at: "" },
+      ],
+    }).toString();
+    expect(out).toContain("2 installed");
+    expect(out).toContain('value="SN-1"');
+    expect(out).toContain('action="/admin/fpga/units/7/serial"');
+    expect(out).toContain('action="/admin/fpga/units/8/delete"');
+    expect(out).toContain('action="/admin/fpga/units"');
+    expect(out).toContain('placeholder="Serial (optional)"');
   });
 
   it("dashboard with nothing out or returned", () => {

@@ -63,8 +63,14 @@ client-side framework, no build step beyond esbuild-via-wrangler.
   overview, `/fpga` is the reservation timeline, `/admin` is the single admin page for
   both systems. There is no BASE_URL path prefix support; deploy at a bare hostname.
 - FPGA reservations are a shared calendar, not an allocator: booking more than a server
-  holds is allowed but flagged (`oversubscribed`). Boards are derived from the admin
-  counts, so 4 in a server become `#1`..`#4`, each with its own hue.
+  holds is allowed but flagged (`oversubscribed`).
+- Inventory is a row per physical board (`fpga_unit`), not a count. Capacity is derived
+  by counting boards. Serials are optional — a board can exist before it is labelled —
+  and unique when present, enforced by the partial index `uq_fpga_unit_serial` (blank
+  serials are stored as NULL so they never collide). The timeline labels a board by its
+  serial, falling back to its position in the server.
+- Deleting an FPGA type or server is refused while any reservation references it; when
+  it is allowed, that type's or server's boards go with it. Same for asset types.
 - Themes: define colors as tokens on `:root`, override under both
   `@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) }` and
   `:root[data-theme="dark"]` so the toggle wins in both directions.

@@ -153,6 +153,8 @@ dl.details dd { margin: 0; }
 .over-note { color: var(--error); font-weight: 600; margin-top: .25rem; }
 ul.tight { margin: .3rem 0; padding-left: 1.1rem; }
 input.qty { width: 5rem; }
+.board-group { font-size: 1rem; margin: 1.25rem 0 .4rem; }
+.inline-label { display: inline-flex; align-items: center; gap: .35rem; font-size: .85rem; }
 
 /* Admin sections: the actions for a section sit directly under its heading. */
 .actions { display: flex; flex-wrap: wrap; gap: .5rem 1rem; align-items: center;

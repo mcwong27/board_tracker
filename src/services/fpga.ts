@@ -11,10 +11,11 @@ import { Db, UniqueViolation } from "../db";
 import { addDays, daysBetween, eachDay, isValidDate, nowText, shortDate, todayIso } from "../dates";
 import type {
   Bar,
+  Capacity,
   FpgaReservation,
   FpgaServer,
   FpgaType,
-  Placements,
+  FpgaUnit,
   Timeline,
   TimelineGroup,
   TimelineRow,
@@ -22,7 +23,7 @@ import type {
 } from "../types";
 import { Conflict, Forbidden, ServiceError } from "../types";
 
-export const placementKey = (typeId: number, serverId: number) => `${typeId}:${serverId}`;
+export const capacityKey = (typeId: number, serverId: number) => `${typeId}:${serverId}`;
 
 export async function fpgaTypes(db: Db): Promise<FpgaType[]> {
   return db.query<FpgaType>("SELECT * FROM fpga_type ORDER BY name");
@@ -40,11 +41,95 @@ export async function getFpgaServer(db: Db, id: number): Promise<FpgaServer | nu
   return db.queryOne<FpgaServer>("SELECT * FROM fpga_server WHERE id = ?", [id]);
 }
 
-export async function fpgaPlacements(db: Db): Promise<Placements> {
-  const rows = await db.query<{ fpga_type_id: number; server_id: number; quantity: number }>(
-    "SELECT fpga_type_id, server_id, quantity FROM fpga_placement",
+type UnitRow = {
+  id: number;
+  fpga_type_id: number;
+  server_id: number;
+  serial: string | null;
+  created_at: string;
+  server_name: string;
+};
+
+function toUnit(row: UnitRow): FpgaUnit {
+  return {
+    id: row.id,
+    fpga_type_id: row.fpga_type_id,
+    server_id: row.server_id,
+    server: { id: row.server_id, name: row.server_name },
+    serial: row.serial,
+    created_at: row.created_at,
+  };
+}
+
+/** Every board, ordered the way the admin page and the timeline show them. */
+export async function fpgaUnits(db: Db): Promise<FpgaUnit[]> {
+  const rows = await db.query<UnitRow>(
+    `SELECT u.*, s.name AS server_name
+     FROM fpga_unit u JOIN fpga_server s ON s.id = u.server_id
+     ORDER BY s.name, u.id`,
   );
-  return new Map(rows.map((r) => [placementKey(r.fpga_type_id, r.server_id), r.quantity]));
+  return rows.map(toUnit);
+}
+
+export async function getFpgaUnit(db: Db, id: number): Promise<FpgaUnit | null> {
+  const row = await db.queryOne<UnitRow>(
+    `SELECT u.*, s.name AS server_name
+     FROM fpga_unit u JOIN fpga_server s ON s.id = u.server_id WHERE u.id = ?`,
+    [id],
+  );
+  return row ? toUnit(row) : null;
+}
+
+/** How many boards of each model are in each server — derived from the boards. */
+export async function fpgaCapacity(db: Db): Promise<Capacity> {
+  const rows = await db.query<{ fpga_type_id: number; server_id: number; n: number }>(
+    "SELECT fpga_type_id, server_id, COUNT(*) AS n FROM fpga_unit GROUP BY fpga_type_id, server_id",
+  );
+  return new Map(rows.map((r) => [capacityKey(r.fpga_type_id, r.server_id), r.n]));
+}
+
+/** A blank serial is stored as NULL so the unique index ignores it. */
+function normalizeSerial(serial: string | undefined | null): string | null {
+  const clean = (serial ?? "").trim();
+  return clean ? clean : null;
+}
+
+export async function addFpgaUnit(
+  db: Db,
+  typeId: number,
+  serverId: number,
+  serial?: string,
+): Promise<FpgaUnit> {
+  if (!(await getFpgaType(db, typeId))) throw new ServiceError("Pick an FPGA type.");
+  if (!(await getFpgaServer(db, serverId))) throw new ServiceError("Pick a server.");
+  try {
+    const result = await db.run(
+      "INSERT INTO fpga_unit (fpga_type_id, server_id, serial, created_at) VALUES (?, ?, ?, ?)",
+      [typeId, serverId, normalizeSerial(serial), nowText()],
+    );
+    return (await getFpgaUnit(db, result.meta.last_row_id as number))!;
+  } catch (error) {
+    if (error instanceof UniqueViolation) {
+      throw new Conflict(`Serial '${serial?.trim()}' is already on another board.`);
+    }
+    throw error;
+  }
+}
+
+export async function setFpgaUnitSerial(db: Db, unit: FpgaUnit, serial: string): Promise<FpgaUnit> {
+  try {
+    await db.run("UPDATE fpga_unit SET serial = ? WHERE id = ?", [normalizeSerial(serial), unit.id]);
+  } catch (error) {
+    if (error instanceof UniqueViolation) {
+      throw new Conflict(`Serial '${serial.trim()}' is already on another board.`);
+    }
+    throw error;
+  }
+  return (await getFpgaUnit(db, unit.id))!;
+}
+
+export async function deleteFpgaUnit(db: Db, unit: FpgaUnit): Promise<void> {
+  await db.run("DELETE FROM fpga_unit WHERE id = ?", [unit.id]);
 }
 
 /** fpgaTypeId -> [(server, quantity)], for showing where each model lives. */
@@ -56,10 +141,10 @@ export async function fpgaInventoryByType(db: Db): Promise<Map<number, Array<[Fp
     server_name: string;
     server_notes: string;
   }>(
-    `SELECT p.fpga_type_id, p.quantity, s.id AS server_id, s.name AS server_name,
+    `SELECT u.fpga_type_id, COUNT(*) AS quantity, s.id AS server_id, s.name AS server_name,
             s.notes AS server_notes
-     FROM fpga_placement p JOIN fpga_server s ON s.id = p.server_id
-     WHERE p.quantity > 0
+     FROM fpga_unit u JOIN fpga_server s ON s.id = u.server_id
+     GROUP BY u.fpga_type_id, s.id
      ORDER BY s.name`,
   );
   const inventory = new Map<number, Array<[FpgaServer, number]>>();
@@ -104,8 +189,9 @@ export async function deleteFpgaType(db: Db, type: FpgaType): Promise<void> {
       `${type.name} is used by ${booked} reservation${booked > 1 ? "s" : ""}. Delete those first.`,
     );
   }
+  // No reservations reference it, so its boards go too.
   await db.batch([
-    ["DELETE FROM fpga_placement WHERE fpga_type_id = ?", [type.id]],
+    ["DELETE FROM fpga_unit WHERE fpga_type_id = ?", [type.id]],
     ["DELETE FROM fpga_type WHERE id = ?", [type.id]],
   ]);
 }
@@ -145,32 +231,11 @@ export async function deleteFpgaServer(db: Db, server: FpgaServer): Promise<void
       `${server.name} is used by ${booked} reservation${booked > 1 ? "s" : ""}. Move or delete those first.`,
     );
   }
+  // No reservations reference it, so its boards go too.
   await db.batch([
-    ["DELETE FROM fpga_placement WHERE server_id = ?", [server.id]],
+    ["DELETE FROM fpga_unit WHERE server_id = ?", [server.id]],
     ["DELETE FROM fpga_server WHERE id = ?", [server.id]],
   ]);
-}
-
-/** Replace the how-many-where grid. A count of 0 removes the placement. */
-export async function setFpgaPlacements(db: Db, counts: Map<string, number>): Promise<void> {
-  const statements: Array<[string, unknown[]]> = [];
-  for (const [key, quantity] of counts) {
-    const [typeId, serverId] = key.split(":").map(Number);
-    if (quantity < 0) throw new ServiceError("Counts can't be negative.");
-    if (quantity === 0) {
-      statements.push([
-        "DELETE FROM fpga_placement WHERE fpga_type_id = ? AND server_id = ?",
-        [typeId, serverId],
-      ]);
-    } else {
-      statements.push([
-        `INSERT INTO fpga_placement (fpga_type_id, server_id, quantity) VALUES (?, ?, ?)
-         ON CONFLICT(fpga_type_id, server_id) DO UPDATE SET quantity = excluded.quantity`,
-        [typeId, serverId, quantity],
-      ]);
-    }
-  }
-  await db.batch(statements);
 }
 
 export const FPGA_FIELDS = [
@@ -300,8 +365,8 @@ export async function deleteFpgaReservation(
 }
 
 type Slot = {
-  server: FpgaServer;
-  index: number;
+  unit: FpgaUnit;
+  server: { id: number; name: string };
   label: string;
   hue: number;
   booked: Array<[string, string]>;
@@ -309,26 +374,30 @@ type Slot = {
 };
 
 /**
- * One slot per physical FPGA: a count of 4 in a server becomes #1..#4. Admins record
- * counts, not serial numbers, so a slot's identity is its position in a server — enough
- * to give every board its own row and hue.
+ * One slot per physical board. A board keeps its identity when others are added or
+ * removed, so its row and hue stay put. Boards with a serial are labelled by it;
+ * the rest fall back to their position within the server.
  */
-export function slotsForType(
-  typeId: number,
-  placements: Placements,
-  servers: Map<number, FpgaServer>,
-): Slot[] {
-  const slots: Slot[] = [];
-  for (const [key, quantity] of placements) {
-    const [placedType, serverId] = key.split(":").map(Number);
-    if (placedType !== typeId) continue;
-    const server = servers.get(serverId as number);
-    if (!server) continue;
-    for (let index = 1; index <= quantity; index++) {
-      slots.push({ server, index, label: `${server.name} #${index}`, hue: 0, booked: [], reservations: [] });
-    }
-  }
-  slots.sort((a, b) => a.server.name.localeCompare(b.server.name) || a.index - b.index);
+export function slotsForType(typeId: number, units: FpgaUnit[]): Slot[] {
+  const mine = units
+    .filter((unit) => unit.fpga_type_id === typeId)
+    .sort((a, b) => a.server.name.localeCompare(b.server.name) || a.id - b.id);
+
+  const seenPerServer = new Map<number, number>();
+  const slots = mine.map((unit) => {
+    const position = (seenPerServer.get(unit.server_id) ?? 0) + 1;
+    seenPerServer.set(unit.server_id, position);
+    return {
+      unit,
+      server: unit.server,
+      label: unit.serial
+        ? `${unit.server.name} · ${unit.serial}`
+        : `${unit.server.name} #${position}`,
+      hue: 0,
+      booked: [] as Array<[string, string]>,
+      reservations: [] as FpgaReservation[],
+    };
+  });
   // Spread hues around the wheel, starting near Berkeley blue.
   slots.forEach((slot, position) => {
     slot.hue = (205 + Math.round((360 * position) / Math.max(slots.length, 1))) % 360;
@@ -369,19 +438,19 @@ export function assignToSlots(reservations: FpgaReservation[], slots: Slot[]): F
  */
 export function oversubscribed(
   reservations: FpgaReservation[],
-  placements: Placements,
+  capacity: Capacity,
 ): { flagged: Set<number>; warnings: string[] } {
   const byPlace = new Map<string, FpgaReservation[]>();
   for (const r of reservations) {
     if (r.server_id == null) continue;
-    const key = placementKey(r.fpga_type_id, r.server_id);
+    const key = capacityKey(r.fpga_type_id, r.server_id);
     byPlace.set(key, [...(byPlace.get(key) ?? []), r]);
   }
 
   const flagged = new Set<number>();
   const warnings: string[] = [];
   for (const [key, group] of byPlace) {
-    const capacity = placements.get(key) ?? 0;
+    const installed = capacity.get(key) ?? 0;
     const inUse = new Map<string, number>();
     for (const r of group) {
       for (const day of eachDay(r.start_date, r.end_date)) {
@@ -389,7 +458,7 @@ export function oversubscribed(
       }
     }
     const overDays = [...inUse.entries()]
-      .filter(([, total]) => total > capacity)
+      .filter(([, total]) => total > installed)
       .map(([day]) => day)
       .sort();
     if (!overDays.length) continue;
@@ -400,9 +469,9 @@ export function oversubscribed(
     const first = overDays[0]!;
     const last = overDays[overDays.length - 1]!;
     const span = overDays.length === 1 ? shortDate(first) : `${shortDate(first)}–${shortDate(last)}`;
-    warnings.push(`${what} in ${where}: ${peak} booked of ${capacity} installed, ${span}.`);
+    warnings.push(`${what} in ${where}: ${peak} booked of ${installed} installed, ${span}.`);
     for (const r of group) {
-      if (eachDay(r.start_date, r.end_date).some((day) => (inUse.get(day) ?? 0) > capacity)) {
+      if (eachDay(r.start_date, r.end_date).some((day) => (inUse.get(day) ?? 0) > installed)) {
         flagged.add(r.id);
       }
     }
@@ -417,10 +486,9 @@ export async function fpgaTimeline(
 ): Promise<Timeline> {
   const totalDays = daysBetween(windowStart, windowEnd) + 1;
   const all = await fpgaReservations(db);
-  const placements = await fpgaPlacements(db);
   // Over-subscription is judged on the whole booking, not just the visible slice.
-  const { flagged, warnings } = oversubscribed(all, placements);
-  const servers = new Map((await fpgaServers(db)).map((s) => [s.id, s]));
+  const { flagged, warnings } = oversubscribed(all, await fpgaCapacity(db));
+  const units = await fpgaUnits(db);
 
   const bar = (r: FpgaReservation, hue: number | null): Bar | null => {
     if (r.end_date < windowStart || r.start_date > windowEnd) return null;
@@ -437,7 +505,7 @@ export async function fpgaTimeline(
   const inventory = await fpgaInventoryByType(db);
   const groups: TimelineGroup[] = [];
   for (const type of await fpgaTypes(db)) {
-    const slots = slotsForType(type.id, placements, servers);
+    const slots = slotsForType(type.id, units);
     const overflow = assignToSlots(byType.get(type.id) ?? [], slots);
     const rows: TimelineRow[] = slots.map((slot) => ({
       label: slot.label,

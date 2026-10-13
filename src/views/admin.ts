@@ -1,6 +1,6 @@
 import { localDateTime } from "../dates";
 import { type Html, html } from "../html";
-import type { Asset, AssetType, Checkout, FpgaServer, FpgaType } from "../types";
+import type { Asset, AssetType, Checkout, FpgaServer, FpgaType, FpgaUnit } from "../types";
 import { type LayoutContext, layout } from "./layout";
 import { actionButtons, flag, statusBadge } from "./partials";
 
@@ -12,13 +12,13 @@ export function adminPage(
     typeCounts: Map<number, number>;
     fpgaTypes: FpgaType[];
     fpgaServers: FpgaServer[];
-    placements: Map<string, number>;
+    units: FpgaUnit[];
     error?: string | null;
   },
 ): Html {
-  const { rows, types, typeCounts, fpgaTypes, fpgaServers, placements, error } = props;
+  const { rows, types, typeCounts, fpgaTypes, fpgaServers, units, error } = props;
   const csrf = html`<input type="hidden" name="csrf_token" value="${ctx.csrfToken}">`;
-  const placed = (t: FpgaType, s: FpgaServer) => placements.get(`${t.id}:${s.id}`) ?? 0;
+  const boardsOf = (t: FpgaType) => units.filter((u) => u.fpga_type_id === t.id);
 
   const body = html`
 <h1>Admin</h1>
@@ -26,7 +26,7 @@ ${error ? html`<p class="banner error prewrap">${error}</p>` : ""}
 <nav class="pills" aria-label="Admin sections">
   <a href="#assets">Assets</a>
   <a href="#asset-types">Asset types</a>
-  <a href="#fpga-counts">FPGA counts</a>
+  <a href="#fpga-boards">FPGA boards</a>
   <a href="#fpga-types">FPGA types</a>
   <a href="#fpga-servers">Servers</a>
 </nav>
@@ -120,36 +120,58 @@ ${
   <button>Add type</button>
 </form>
 
-<h2 id="fpga-counts">FPGA counts: how many, where</h2>
+<h2 id="fpga-boards">FPGA boards</h2>
+<p class="muted">One row per physical board. The serial is optional — add boards now and
+  label them later — but no two boards may share one. Each board gets its own row and
+  colour on the reservation timeline.</p>
 ${
   fpgaTypes.length && fpgaServers.length
-    ? html`<form method="post" action="/admin/fpga/counts">
+    ? html`${fpgaTypes.map((t) => {
+        const boards = boardsOf(t);
+        return html`<h3 class="board-group">${t.name} <span class="muted small">${boards.length} installed</span></h3>
+${
+  boards.length
+    ? html`<div class="table-wrap">
+<table>
+  <thead><tr><th>Server</th><th>Serial</th><th></th></tr></thead>
+  <tbody>
+  ${boards.map(
+    (unit) => html`<tr>
+    <td>${unit.server.name}</td>
+    <td>
+      <form class="row" method="post" action="/admin/fpga/units/${unit.id}/serial">
+        ${csrf}
+        <input type="text" name="serial" value="${unit.serial ?? ""}" maxlength="100"
+               placeholder="unlabelled" aria-label="Serial for this board">
+        <button class="secondary">Save</button>
+      </form>
+    </td>
+    <td>
+      <form class="inline" method="post" action="/admin/fpga/units/${unit.id}/delete">
+        ${csrf}
+        <button class="secondary">Remove</button>
+      </form>
+    </td>
+  </tr>`,
+  )}
+  </tbody>
+</table>
+</div>`
+    : html`<p class="muted">No boards recorded.</p>`
+}
+<form method="post" action="/admin/fpga/units" class="row add-form">
   ${csrf}
-  <div class="table-wrap">
-  <table>
-    <thead>
-      <tr><th>FPGA type</th>${fpgaServers.map((s) => html`<th>${s.name}</th>`)}<th>Total</th></tr>
-    </thead>
-    <tbody>
-    ${fpgaTypes.map(
-      (t) => html`<tr>
-      <td>${t.name}</td>
-      ${fpgaServers.map(
-        (s) => html`<td>
-        <input class="qty" type="number" min="0" name="qty-${t.id}-${s.id}"
-               value="${placed(t, s)}"
-               aria-label="${t.name} in ${s.name}">
-      </td>`,
-      )}
-      <td class="muted">${fpgaServers.reduce((sum, s) => sum + placed(t, s), 0)}</td>
-    </tr>`,
-    )}
-    </tbody>
-  </table>
-  </div>
-  <div class="row add-form"><button>Save counts</button></div>
-</form>`
-    : html`<p class="muted">Add at least one FPGA type and one server to fill in counts.</p>`
+  <input type="hidden" name="fpga_type_id" value="${t.id}">
+  <label class="inline-label">Server
+    <select name="server_id" required aria-label="Server for the new board">
+      ${fpgaServers.map((s) => html`<option value="${s.id}">${s.name}</option>`)}
+    </select>
+  </label>
+  <input type="text" name="serial" placeholder="Serial (optional)" maxlength="100">
+  <button>Add board</button>
+</form>`;
+      })}`
+    : html`<p class="muted">Add at least one FPGA type and one server before recording boards.</p>`
 }
 
 <h2 id="fpga-types">FPGA types</h2>

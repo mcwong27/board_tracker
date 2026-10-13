@@ -191,20 +191,29 @@ describe("the asset lifecycle, end to end", () => {
 });
 
 describe("the FPGA timeline, end to end", () => {
-  async function setup() {
+  /** Sign in as an admin, create a server, and add `boards` boards of one FPGA type. */
+  async function setup(boards = 0, serials: string[] = []) {
     const admin = new Client();
     await admin.login("admin@berkeley.edu", { admin: true });
     await admin.post("/admin/fpga/servers", { name: "rack2-srv1" }, "/admin");
     const page = await admin.text("/admin");
-    const cell = /name="qty-(\d+)-(\d+)"/.exec(page);
-    expect(cell, "the counts grid should render once a type and a server exist").toBeTruthy();
-    return { admin, typeId: cell![1]!, serverId: cell![2]! };
+    const typeId = /name="fpga_type_id" value="(\d+)"/.exec(page)?.[1];
+    const serverId = /<option value="(\d+)">rack2-srv1<\/option>/.exec(page)?.[1];
+    expect(typeId, "the add-board form should render once a type and a server exist").toBeTruthy();
+    expect(serverId).toBeTruthy();
+    for (let i = 0; i < boards; i++) {
+      const response = await admin.post(
+        "/admin/fpga/units",
+        { fpga_type_id: typeId!, server_id: serverId!, serial: serials[i] ?? "" },
+        "/admin",
+      );
+      expect(response.status).toBe(303);
+    }
+    return { admin, typeId: typeId!, serverId: serverId! };
   }
 
-  it("gives each board a row and a hue once counts are set", async () => {
-    const { admin, typeId, serverId } = await setup();
-    expect((await admin.post("/admin/fpga/counts", { [`qty-${typeId}-${serverId}`]: "2" }, "/admin")).status).toBe(303);
-
+  it("gives each board a row and a hue, labelled by serial when it has one", async () => {
+    const { admin, typeId, serverId } = await setup(2, ["SN-ALPHA"]);
     const today = new Date().toISOString().slice(0, 10);
     const booked = await admin.post(
       "/fpga/new",
@@ -217,16 +226,15 @@ describe("the FPGA timeline, end to end", () => {
     expect(booked.status).toBe(303);
 
     const timeline = await admin.text("/fpga");
-    expect(timeline).toContain("rack2-srv1 #1");
-    expect(timeline).toContain("rack2-srv1 #2");
+    expect(timeline).toContain("rack2-srv1 · SN-ALPHA"); // labelled board
+    expect(timeline).toContain("rack2-srv1 #2"); // unlabelled falls back to a position
     expect(timeline).toMatch(/--hue:\s*\d+/);
     expect(timeline).toContain("Lab 4");
     expect(timeline).not.toContain("Over-subscribed");
   });
 
   it("flags over-booking but still saves it", async () => {
-    const { admin, typeId, serverId } = await setup();
-    await admin.post("/admin/fpga/counts", { [`qty-${typeId}-${serverId}`]: "1" }, "/admin");
+    const { admin, typeId, serverId } = await setup(1);
     const today = new Date().toISOString().slice(0, 10);
     for (const project of ["Alpha", "Bravo"]) {
       const response = await admin.post(
@@ -245,8 +253,25 @@ describe("the FPGA timeline, end to end", () => {
     expect(timeline).toContain("Over capacity");
   });
 
+  it("keeps serials unique, and allows many unlabelled boards", async () => {
+    const { admin, typeId, serverId } = await setup(0);
+    const add = (serial: string) =>
+      admin.post("/admin/fpga/units", { fpga_type_id: typeId, server_id: serverId, serial }, "/admin");
+
+    expect((await add("SN-1")).status).toBe(303);
+    const clash = await add("SN-1");
+    expect(clash.status).toBe(409);
+    expect(await clash.text()).toContain("already on another board");
+
+    // Blank serials don't collide with each other.
+    expect((await add("")).status).toBe(303);
+    expect((await add("")).status).toBe(303);
+    const page = await admin.text("/admin");
+    expect(page).toContain("3 installed");
+  });
+
   it("requires a server and refuses edits by other people", async () => {
-    const { admin, typeId, serverId } = await setup();
+    const { admin, typeId, serverId } = await setup(1);
     const today = new Date().toISOString().slice(0, 10);
     const noServer = await admin.post(
       "/fpga/new",

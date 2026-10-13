@@ -30,7 +30,7 @@ async function renderIndex(c: AppContext, status = 200, error?: string) {
       typeCounts: await assets.assetCountsByType(database),
       fpgaTypes: await fpga.fpgaTypes(database),
       fpgaServers: await fpga.fpgaServers(database),
-      placements: await fpga.fpgaPlacements(database),
+      units: await fpga.fpgaUnits(database),
       error,
     }),
     status,
@@ -246,29 +246,36 @@ adminRoutes.post("/admin/fpga/servers/:id{[0-9]+}/delete", (c) =>
   }),
 );
 
-/** The how-many-where grid posts one `qty-<typeId>-<serverId>` field per cell. */
-adminRoutes.post("/admin/fpga/counts", async (c) => {
-  const ctx = c as AppContext;
-  const values = await formValues(ctx);
-  assertCsrf(ctx, values);
-  const counts = new Map<string, number>();
-  for (const [key, value] of Object.entries(values)) {
-    if (!key.startsWith("qty-")) continue;
-    const [, typeId, serverId] = key.split("-");
-    const quantity = Number.parseInt(value || "0", 10);
-    if (!typeId || !serverId || !Number.isInteger(quantity)) {
-      return renderIndex(ctx, 400, "Counts must be whole numbers.");
-    }
-    counts.set(`${typeId}:${serverId}`, quantity);
-  }
-  try {
-    await fpga.setFpgaPlacements(db(ctx), counts);
-  } catch (error) {
-    if (!(error instanceof ServiceError)) throw error;
-    return renderIndex(ctx, error.status, error.message);
-  }
-  return redirect(ctx, "/admin", "Saved FPGA counts.");
-});
+adminRoutes.post("/admin/fpga/units", (c) =>
+  mutate(c as AppContext, async (values) => {
+    const ctx = c as AppContext;
+    const typeId = Number.parseInt(values["fpga_type_id"] ?? "", 10);
+    const serverId = Number.parseInt(values["server_id"] ?? "", 10);
+    const unit = await fpga.addFpgaUnit(db(ctx), typeId, serverId, values["serial"]);
+    const what = unit.serial ? `${unit.serial}` : "an unlabelled board";
+    return `Added ${what} to ${unit.server.name}.`;
+  }),
+);
+
+adminRoutes.post("/admin/fpga/units/:id{[0-9]+}/serial", (c) =>
+  mutate(c as AppContext, async (values) => {
+    const ctx = c as AppContext;
+    const unit = await fpga.getFpgaUnit(db(ctx), Number(c.req.param("id")));
+    if (!unit) notFound();
+    const updated = await fpga.setFpgaUnitSerial(db(ctx), unit, values["serial"] ?? "");
+    return updated.serial ? `Serial set to ${updated.serial}.` : "Serial cleared.";
+  }),
+);
+
+adminRoutes.post("/admin/fpga/units/:id{[0-9]+}/delete", (c) =>
+  mutate(c as AppContext, async () => {
+    const ctx = c as AppContext;
+    const unit = await fpga.getFpgaUnit(db(ctx), Number(c.req.param("id")));
+    if (!unit) notFound();
+    await fpga.deleteFpgaUnit(db(ctx), unit);
+    return `Removed ${unit.serial ?? "an unlabelled board"} from ${unit.server.name}.`;
+  }),
+);
 
 function csvResponse(c: AppContext, name: string, body: string): Response {
   const stamp = new Date().toISOString().slice(0, 10).replace(/-/g, "");

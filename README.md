@@ -13,8 +13,11 @@ admin rights come from two Google Groups.
   contact, special requests, dates, and which server. One row per physical board, each
   with its own hue, collapsed into a single muxed line per model until you expand it.
   Booking more than a server holds is allowed but flagged.
+- **FPGA inventory:** admins record each physical board and which server it is in, with
+  an optional serial. Serials are unique, so one identifies exactly one board; boards
+  without one are shown by position. Capacity comes from the boards on record.
 - **Admin:** one page for both systems — add/edit/retire assets, manage asset types,
-  manage FPGA types, servers and per-server counts, force-return, CSV export, and CSV
+  manage FPGA types, servers and individual boards, force-return, CSV export, and CSV
   **import** of assets (same columns as the export, so you can download, edit in a
   spreadsheet, and upload back).
 - **Light and dark themes,** following the system setting until you pick one

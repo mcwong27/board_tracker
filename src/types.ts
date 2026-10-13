@@ -33,8 +33,18 @@ export type Checkout = {
 export type FpgaType = { id: number; name: string };
 export type FpgaServer = { id: number; name: string; notes: string };
 
-/** key is `${fpga_type_id}:${server_id}` */
-export type Placements = Map<string, number>;
+/** One physical FPGA board. `serial` is optional but unique when present. */
+export type FpgaUnit = {
+  id: number;
+  fpga_type_id: number;
+  server_id: number;
+  server: { id: number; name: string };
+  serial: string | null;
+  created_at: string;
+};
+
+/** How many boards of each model sit in each server; key is `${typeId}:${serverId}`. */
+export type Capacity = Map<string, number>;
 
 export type FpgaReservation = {
   id: number;

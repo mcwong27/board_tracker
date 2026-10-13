@@ -30,8 +30,9 @@ People sign in with Berkeley Google accounts; admins manage inventory.
 - FpgaType: id, name. Seeded with U250, XB10, VCU118, U200, U280, V80, RHS Research Nitefury II;
   admins add more.
 - FpgaServer: id, name, notes — a machine FPGAs are installed in.
-- FpgaPlacement: fpga_type, server, quantity — how many of a model live in a given server.
-  Unique per (type, server).
+- FpgaUnit: fpga_type, server, serial (optional, unique when present), created_at — one
+  row per physical board. Capacity is derived by counting boards, so there is no separate
+  quantity to keep in step.
 - FpgaReservation: fpga_type, server, project, quantity, contact, special_requests,
   start_date, end_date, created_by_email. Every new reservation must name a server; the column
   stays nullable only for rows that predate servers existing. Not tied to a specific named Asset:
@@ -47,9 +48,13 @@ People sign in with Berkeley Google accounts; admins manage inventory.
   Visible to everyone.
 - Per-asset history page
 - Admin: a single page covering both systems — add/edit/retire assets, manage asset types,
-  force-return, CSV export of assets and checkout history, and manage FPGA types, servers, and
-  the how-many-where grid. Assets and FPGA reservations stay separate for users but share one
-  admin page; each section's actions sit under its own heading.
+  force-return, CSV export of assets and checkout history, and manage FPGA types, servers
+  and the individual boards in each server. Assets and FPGA reservations stay separate for
+  users but share one admin page; each section's actions sit under its own heading.
+- Deleting a type or server is refused while anything still references it: an asset type
+  in use by assets, an FPGA type or server in use by reservations. Nothing is ever
+  silently deleted on the user's behalf. A deletable FPGA type or server takes its own
+  boards with it.
 - Asset CSV import: same columns as the assets export (name and type required; serial,
   chip_mounted, location, notes, retired optional; derived columns ignored), so an exported file
   can be edited and uploaded back. Rows match existing assets by name: update or create, never
