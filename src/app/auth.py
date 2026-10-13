@@ -65,6 +65,14 @@ def make_oauth(settings: Settings):
     return oauth
 
 
+def get_oauth(request: Request):
+    """The OAuth client, built on first use when the app was created deferred."""
+    app = request.app
+    if app.state.oauth is None:
+        app.state.oauth = make_oauth(get_settings(request))
+    return app.state.oauth
+
+
 def get_settings(request: Request) -> Settings:
     return request.app.state.settings
 

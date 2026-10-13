@@ -44,6 +44,18 @@ Only `src/` is bundled into the Worker, so all Python and all templates live the
 ## Invariants
 - **Every route and dependency must be `async def`.** Workers has no threads, so FastAPI
   running a sync handler or dependency in a threadpool raises "can't start new thread".
+- **Keep expensive work at module scope.** The free plan allows 10ms of CPU per request;
+  global scope gets a 1s startup budget and is captured in the deploy-time snapshot.
+  `src/entry.py` therefore imports FastAPI and calls `create_app(defer=True)` at module
+  scope — importing (~220ms) or building the app inside `fetch` raises `CpuLimitExceeded`.
+  Templates are precompiled in `templating.py` and the middleware stack is pre-built for
+  the same reason.
+- **Some packages can't be imported at module scope on Workers**: authlib, google-auth and
+  httpx2 fail with "Top-level await in module is unsettled". Import them inside the
+  functions that use them (see `auth.make_oauth`, `auth.get_oauth`, `groups.py`).
+- Because the app is built before the bindings exist, settings are attached on the first
+  request and `DeferredSessionMiddleware` builds the session signer then. A BASE_URL path
+  prefix can't work on Workers and `validate(on_workers=True)` rejects it.
 - Runtime dependencies must work under Pyodide. Anything needing a C extension without a
   WebAssembly wheel (uvicorn, pytest, ruff) belongs in the `dev` dependency group.
 - One active checkout per asset is enforced by the partial unique index

@@ -1,12 +1,12 @@
 """Cloudflare Worker entry point.
 
-The imports below are deliberately at module scope. Workers gives global scope a
-1-second startup budget but only 10ms of CPU per request on the free plan, so
-importing FastAPI inside `fetch` blows the per-request budget immediately
-(`CpuLimitExceeded`). At module scope the cost is paid once when the isolate starts.
+Everything expensive happens here at module scope, which Workers gives a 1-second
+startup budget and captures in the deploy-time snapshot. A request then only routes,
+runs the handler, and talks to D1 — the free plan allows just 10ms of CPU per request,
+and both importing FastAPI (~200ms) and building the app (~100ms) blow that budget if
+they happen inside `fetch`.
 
-Bindings (D1, vars, secrets) only exist per request, so the app itself is still built
-on the first request and then reused for the life of the isolate.
+Bindings only exist per request, so settings are attached on the first one.
 """
 
 import asgi
@@ -15,16 +15,11 @@ from workers import WorkerEntrypoint
 from app.config import Settings
 from app.main import create_app
 
-_app = None
-
-
-def _get_app(env):
-    global _app
-    if _app is None:
-        _app = create_app(Settings.from_workers_env(env))
-    return _app
+app = create_app(defer=True)
 
 
 class Default(WorkerEntrypoint):
     async def fetch(self, request):
-        return await asgi.fetch(_get_app(self.env), request, self.env, self.ctx)
+        if app.state.settings is None:
+            app.state.settings = Settings.from_workers_env(self.env).validate(on_workers=True)
+        return await asgi.fetch(app, request, self.env, self.ctx)

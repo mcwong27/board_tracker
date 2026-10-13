@@ -174,6 +174,16 @@ npx wrangler tail            # live logs from the deployed Worker
   `DEV_LOGIN=1`.
 - **"can't start new thread"** — a route or dependency was defined as `def` instead of
   `async def`. Workers has no threads, and FastAPI would otherwise run it in a threadpool.
+- **`CpuLimitExceeded` / Error 1101 on cold requests** — something expensive moved out of
+  module scope. The free plan gives only 10ms of CPU per request, while global scope gets a
+  1s startup budget and is snapshotted at deploy time, so imports, `create_app(defer=True)`,
+  template compilation and the middleware stack all have to happen there. Warm requests
+  succeeding while cold ones 500 is the signature of this.
+- **"Top-level await in module is unsettled"** — a package that can't be imported during
+  module evaluation (authlib, google-auth, httpx2) was hoisted to module scope. Import it
+  inside the function that uses it.
+- **`BASE_URL must not have a path prefix on Workers`** — deploy at a bare hostname; the app
+  is constructed before BASE_URL is known, so a prefix can't be applied to routing.
 - **Sign-in says you're not on the access list** — the account isn't a direct member of
   `GOOGLE_USERS_GROUP`. Nested groups are not followed; see
   [Google Groups setup](google-groups.md).

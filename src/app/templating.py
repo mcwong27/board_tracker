@@ -34,6 +34,22 @@ templates.env.filters["localtime"] = localtime
 templates.env.globals["path"] = path
 
 
+def _precompile_templates() -> None:
+    """Compile every template at import time.
+
+    Jinja compiles lazily on first render, which on Workers would land in a request's
+    10ms CPU budget. Doing it here puts the cost in the startup budget instead, where
+    it's captured by the deploy-time snapshot. It also turns a template syntax error
+    into a startup failure rather than a 500 on whichever page uses it.
+    """
+    root = Path(templates.env.loader.searchpath[0])
+    for template in sorted(root.rglob("*.html")):
+        templates.env.get_template(str(template.relative_to(root)))
+
+
+_precompile_templates()
+
+
 def render(request: Request, name: str, status_code: int = 200, **context: Any):
     context.update(
         user=current_user(request),

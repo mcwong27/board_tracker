@@ -6,7 +6,14 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import RedirectResponse
 
-from app.auth import IdentityError, current_user, get_settings, validate_email, validate_identity
+from app.auth import (
+    IdentityError,
+    current_user,
+    get_oauth,
+    get_settings,
+    validate_email,
+    validate_identity,
+)
 from app.config import ALLOWED_DOMAIN
 from app.csrf import verify_csrf
 from app.groups import GroupsError, get_client
@@ -60,7 +67,7 @@ async def login_google(request: Request):
     settings = get_settings(request)
     if settings.dev_login:
         return redirect(request, "/dev-login")
-    return await request.app.state.oauth.google.authorize_redirect(
+    return await get_oauth(request).google.authorize_redirect(
         request,
         redirect_uri=f"{settings.base_url}/auth/callback",
         hd=ALLOWED_DOMAIN,  # UI hint only; enforced in validate_identity
@@ -73,7 +80,7 @@ async def auth_callback(request: Request):
     from authlib.integrations.starlette_client import OAuthError  # see make_oauth
 
     try:
-        token = await request.app.state.oauth.google.authorize_access_token(request)
+        token = await get_oauth(request).google.authorize_access_token(request)
     except OAuthError as exc:
         log.warning("OAuth error: %s", exc)
         return render(request, "login.html", status_code=400, error="Sign-in failed. Try again.")

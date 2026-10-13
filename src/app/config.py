@@ -89,8 +89,13 @@ class Settings:
     def https(self) -> bool:
         return urlparse(self.base_url).scheme == "https"
 
-    def validate(self) -> "Settings":
+    def validate(self, *, on_workers: bool = False) -> "Settings":
         """Fail fast on unsafe or incomplete config; return settings with defaults filled."""
+        if on_workers and self.root_path:
+            raise ConfigError(
+                f"BASE_URL must not have a path prefix on Workers (got {self.root_path!r}); "
+                "the app is built before BASE_URL is known. Deploy at a bare hostname."
+            )
         if self.dev_login and self.is_production:
             raise ConfigError("DEV_LOGIN must not be enabled when ENV=production")
         if self.is_production and not self.secret_key:
