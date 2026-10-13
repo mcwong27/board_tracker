@@ -1,0 +1,22 @@
+# Local development only: copy to .dev.vars (gitignored) and adjust.
+# On Cloudflare these come from wrangler.jsonc `vars` and `wrangler secret put`
+# — see docs/deployment.md.
+
+ENV=development
+
+# 1 = replace Google sign-in with a plain form that has an admin checkbox.
+# Never set this on a deployed Worker.
+DEV_LOGIN=1
+
+# Signs session cookies. Any random string will do locally.
+SECRET_KEY=local-dev-secret
+
+# Must match how you reach the app, including the scheme. No path prefix.
+BASE_URL=http://localhost:8787
+
+# Only needed with DEV_LOGIN=0, to test real Google sign-in locally.
+# GOOGLE_CLIENT_ID=
+# GOOGLE_CLIENT_SECRET=
+# GOOGLE_SERVICE_ACCOUNT_JSON={"type":"service_account", ...}
+# GOOGLE_USERS_GROUP=btrack-users@lists.berkeley.edu
+# GOOGLE_ADMINS_GROUP=btrack-admins@lists.berkeley.edu

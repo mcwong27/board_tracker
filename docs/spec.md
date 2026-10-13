@@ -73,29 +73,29 @@ People sign in with Berkeley Google accounts; admins manage inventory.
 - Light and dark themes: follows the system setting, with a toggle that overrides it and persists.
 
 ## Stack
-- Python, FastAPI, Jinja server-rendered templates, minimal CSS, no JS framework
+- A TypeScript Cloudflare Worker: Hono for routing, server-rendered HTML from tagged
+  template literals that escape by default, minimal CSS, no client-side framework
   (a few lines of vanilla JS for the theme toggle and timeline hover cards)
-- Runs as a Python Worker on Cloudflare (FastAPI on Pyodide); data in D1 (managed SQLite)
-- No ORM: plain SQL against a small async Database interface with two backends, D1 in
-  production and a local SQLite file for tests and the uvicorn dev loop. D1 is SQLite, so
-  the same statements serve both. uv for dependencies
+- Data in D1 (Cloudflare's managed SQLite), reached with plain SQL — no ORM
+- Sessions, the service-account JWT and the OAuth flow all use the platform's own
+  `fetch` and WebCrypto, so the Worker carries one runtime dependency
 
 ## Deployment (Cloudflare Workers)
 - Public config in wrangler.jsonc `vars` (ENV, BASE_URL, GOOGLE_CLIENT_ID,
   GOOGLE_USERS_GROUP, GOOGLE_ADMINS_GROUP, DEV_LOGIN); secrets via `wrangler secret put`
   (SECRET_KEY, GOOGLE_CLIENT_SECRET, GOOGLE_SERVICE_ACCOUNT_JSON). The same settings are
-  read from env vars when running locally; .env.example documents each one.
+  read from .dev.vars when running locally; .dev.vars.example documents each one.
 - Schema changes are numbered .sql files in migrations/, applied with
   `wrangler d1 migrations apply`. The same files build the test database.
-- Every route and dependency must be async: Workers has no threads. Runtime dependencies
-  must work under Pyodide, so anything needing a C extension stays in the dev group.
-- Works behind a BASE_URL path prefix (all links built through `path()`/`app_path`).
+- Deployed at a bare hostname: a BASE_URL path prefix is not supported, and all links
+  in the app are absolute paths.
 - Backups: `wrangler d1 export`, plus D1 time-travel within the retention window.
 - README: local dev; Google OAuth client setup incl. redirect URIs; Google Groups setup;
   docs/deployment.md covers deploying, secrets, migrations and backups.
 
 ## Quality
-- pytest tests: no double checkout, only holder/admin can return, non-berkeley emails rejected,
-  non-members refused, group API failure fails closed, admin routes protected, over-subscription
-  detection, schema migrations preserve existing data
+- Vitest, running inside the Workers runtime against a real local D1: no double
+  checkout, only holder/admin can return, non-berkeley emails rejected, non-members
+  refused, group API failure fails closed, CSRF enforced, admin routes protected,
+  over-subscription detection, CSV round-tripping, and HTML escaping of user text
 - CLAUDE.md with project overview and the commands to run, test, and lint
