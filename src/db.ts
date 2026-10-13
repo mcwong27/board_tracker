@@ -42,12 +42,17 @@ export class Db {
     }
   }
 
+  /** The first column of the first row — for COUNT(*) and similar. */
   async value<T>(sql: string, params: unknown[] = []): Promise<T | null> {
+    let row: Record<string, unknown> | null;
     try {
-      return (await this.stmt(sql, params).first<T>(undefined as never)) ?? null;
+      row = await this.stmt(sql, params).first<Record<string, unknown>>();
     } catch (error) {
       wrap(error);
     }
+    if (!row) return null;
+    const first = Object.values(row)[0];
+    return (first ?? null) as T | null;
   }
 
   async run(sql: string, params: unknown[] = []): Promise<D1Result> {
