@@ -49,6 +49,7 @@ h2 { font-size: 1.15rem; margin: 1.5rem 0 .5rem; }
 .theme-toggle { background: none; border: 1px solid rgba(255, 255, 255, .35); color: var(--topbar-fg);
   border-radius: 999px; padding: .15rem .6rem; font-size: .8rem; cursor: pointer; line-height: 1.4; }
 .theme-toggle:hover { border-color: var(--gold); color: var(--gold); filter: none; }
+.push-right { margin-left: auto; }
 
 .narrow { max-width: 420px; }
 .stack { display: grid; gap: .75rem; max-width: 480px; }

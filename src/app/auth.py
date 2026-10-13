@@ -3,7 +3,6 @@
 from dataclasses import dataclass
 from typing import Annotated, Any
 
-from authlib.integrations.starlette_client import OAuth
 from fastapi import Depends, HTTPException, Request
 
 from app.config import ALLOWED_DOMAIN, Settings
@@ -50,7 +49,11 @@ def validate_identity(claims: dict[str, Any]) -> tuple[str, str]:
     return email, name
 
 
-def make_oauth(settings: Settings) -> OAuth:
+def make_oauth(settings: Settings):
+    # Imported here, not at module scope: on Workers an authlib import during module
+    # evaluation fails with "Top-level await in module is unsettled".
+    from authlib.integrations.starlette_client import OAuth
+
     oauth = OAuth()
     oauth.register(
         name="google",
@@ -75,14 +78,14 @@ def current_user(request: Request) -> User | None:
     return User(email=data["email"], name=data["name"], is_admin=bool(data.get("is_admin", False)))
 
 
-def require_user(request: Request) -> User:
+async def require_user(request: Request) -> User:
     user = current_user(request)
     if user is None:
         raise LoginRequired()
     return user
 
 
-def require_admin(user: Annotated[User, Depends(require_user)]) -> User:
+async def require_admin(user: Annotated[User, Depends(require_user)]) -> User:
     if not user.is_admin:
         raise HTTPException(status_code=403, detail="Admins only.")
     return user

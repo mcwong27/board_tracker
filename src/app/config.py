@@ -36,6 +36,31 @@ class Settings:
     google_admins_group: str = ""
 
     @classmethod
+    def from_workers_env(cls, env) -> "Settings":
+        """Read config from Worker bindings (`vars` and secrets) instead of os.environ.
+
+        Bindings arrive as a JS object, so missing keys come back as None rather
+        than raising.
+        """
+
+        def binding(name: str, default: str = "") -> str:
+            value = getattr(env, name, None)
+            return default if value is None else str(value)
+
+        return cls(
+            secret_key=binding("SECRET_KEY"),
+            google_client_id=binding("GOOGLE_CLIENT_ID"),
+            google_client_secret=binding("GOOGLE_CLIENT_SECRET"),
+            base_url=binding("BASE_URL", "http://localhost:8787").rstrip("/"),
+            database_path="",  # Workers has no filesystem: data lives in the D1 binding
+            dev_login=_truthy(binding("DEV_LOGIN")),
+            env=binding("ENV", "production").strip().lower(),
+            google_service_account_json=binding("GOOGLE_SERVICE_ACCOUNT_JSON"),
+            google_users_group=binding("GOOGLE_USERS_GROUP").strip().lower(),
+            google_admins_group=binding("GOOGLE_ADMINS_GROUP").strip().lower(),
+        )
+
+    @classmethod
     def from_env(cls) -> "Settings":
         return cls(
             secret_key=os.environ.get("SECRET_KEY", ""),

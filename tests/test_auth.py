@@ -8,8 +8,10 @@ from tests.conftest import csrf_from, login, make_settings
 
 GOOD = {"email": "Oski@Berkeley.edu", "email_verified": True, "hd": "berkeley.edu", "name": "Oski"}
 
-USERS_GROUP = "boards-users@berkeley.edu"
-ADMINS_GROUP = "boards-admins@berkeley.edu"
+# Berkeley's Google Groups live on lists.berkeley.edu, a different domain from the
+# @berkeley.edu identities signing in. Use the real shape here.
+USERS_GROUP = "btrack-users@lists.berkeley.edu"
+ADMINS_GROUP = "btrack-admins@lists.berkeley.edu"
 
 
 class FakeGroupsClient:
@@ -67,20 +69,18 @@ def fake_token(monkeypatch, app, userinfo):
 
 
 @pytest.fixture
-def oauth_app(db_path):
-    application = create_app(
+def oauth_app(db):
+    return create_app(
         make_settings(
-            db_path,
             dev_login=False,
             google_client_id="id",
             google_client_secret="s",
             google_service_account_json='{"type": "service_account"}',
             google_users_group=USERS_GROUP,
             google_admins_group=ADMINS_GROUP,
-        )
+        ),
+        database=db,
     )
-    yield application
-    application.state.engine.dispose()
 
 
 def test_oauth_callback_rejects_non_berkeley(monkeypatch, oauth_app):
@@ -203,11 +203,11 @@ def test_healthz(client):
     assert client.get("/healthz").text == "ok"
 
 
-def test_base_url_prefix(db_path):
-    """Behind a proxy at https://host/assets, links and redirects carry the prefix."""
-    settings = make_settings(db_path, base_url="https://example.org/assets")
-    with TestClient(create_app(settings), follow_redirects=False) as client:
-        resp = client.get("/assets/")
+def test_base_url_prefix(db):
+    """Behind a proxy at https://host/btrack, links and redirects carry the prefix."""
+    settings = make_settings(base_url="https://example.org/btrack")
+    with TestClient(create_app(settings, database=db), follow_redirects=False) as client:
+        resp = client.get("/btrack/")
         assert resp.status_code == 303
-        assert resp.headers["location"] == "/assets/login"
-        assert 'href="/assets/dev-login"' in client.get("/assets/login").text
+        assert resp.headers["location"] == "/btrack/login"
+        assert 'href="/btrack/dev-login"' in client.get("/btrack/login").text

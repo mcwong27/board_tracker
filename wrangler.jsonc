@@ -1,0 +1,38 @@
+{
+	"$schema": "node_modules/wrangler/config-schema.json",
+	"name": "btrack",
+	"main": "src/entry.py",
+	"compatibility_date": "2026-10-06",
+	"compatibility_flags": [
+		"python_workers"
+	],
+	"observability": {
+		"enabled": true
+	},
+	// style.css / app.js, served at /static/*. Not bundled into the Worker itself.
+	"assets": {
+		"directory": "./public/",
+		"binding": "ASSETS"
+	},
+	// Run `wrangler d1 create btrack` and paste the id it prints into database_id.
+	"d1_databases": [
+		{
+			"binding": "DB",
+			"database_name": "btrack",
+			"database_id": "531c92ee-5780-4815-bc09-d1b1b993e806",
+			"remote": true,
+			"migrations_dir": "migrations"
+		}
+	],
+	// Non-secret config. Secrets (SECRET_KEY, GOOGLE_CLIENT_SECRET,
+	// GOOGLE_SERVICE_ACCOUNT_JSON) go in via `wrangler secret put` — never here.
+	"vars": {
+		"ENV": "production",
+		"DEV_LOGIN": "0",
+		"BASE_URL": "https://stuff.ucb.bar",
+		"GOOGLE_CLIENT_ID": "1009246969762-kpdekh27vfp2m6fsl40clrk9o85vlp2d.apps.googleusercontent.com",
+		// Berkeley's Google Groups are @lists.berkeley.edu, not @berkeley.edu.
+		"GOOGLE_USERS_GROUP": "btrack-users@lists.berkeley.edu",
+		"GOOGLE_ADMINS_GROUP": "btrack-admins@lists.berkeley.edu"
+	}
+}

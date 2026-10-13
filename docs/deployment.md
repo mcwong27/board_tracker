@@ -1,85 +1,182 @@
-# Deploying
+# Deploying bTrack on Cloudflare Workers
 
-These steps work on any Linux box with Docker and Caddy. You need a Linux server with a public
-IP, a DNS name pointing at it (an A/AAAA record), and ports 80 and 443 open. Caddy gets the
-HTTPS certificate automatically.
+The app runs as a Python Worker (FastAPI on Pyodide) with its data in D1, Cloudflare's
+managed SQLite. There is no server to maintain and no container to build.
 
-The deployment files are `Dockerfile` and `docker-compose.yml` at the top level, plus `deploy/`:
+You need a Cloudflare account and the `wrangler` CLI (`npx wrangler`, already a dev
+dependency). Everything below is run from the project root.
 
-| File | Purpose |
-| --- | --- |
-| `deploy/docker-entrypoint.sh` | Container start: checks config, then runs uvicorn |
-| `deploy/Caddyfile.example` | HTTPS reverse proxy config for Caddy |
-| `deploy/backup.sh` | Copies the live database out of the container |
-| `deploy/restore.sh` | Replaces the live database with a backup |
-
-## First deploy
-
-1. **Install Docker** (with the compose plugin):
-   ```sh
-   curl -fsSL https://get.docker.com | sudo sh
-   sudo usermod -aG docker $USER   # log out and back in afterwards
-   ```
-2. **Install Caddy:** follow https://caddyserver.com/docs/install. On Debian/Ubuntu, that's the
-   `apt` repository instructions, which install Caddy as a systemd service.
-3. **Get the code and configure it:**
-   ```sh
-   git clone <this repo> board_tracker && cd board_tracker
-   cp .env.example .env
-   chmod 600 .env
-   $EDITOR .env    # SECRET_KEY, GOOGLE_CLIENT_ID/SECRET, BASE_URL=https://your.host,
-                   # GOOGLE_SERVICE_ACCOUNT_FILE or _JSON, GOOGLE_USERS_GROUP, GOOGLE_ADMINS_GROUP
-   ```
-   Keep `ENV=production` and `DEV_LOGIN=0`. For the sign-in client see
-   [Google OAuth setup](google-oauth.md); for the access list and admin rights see
-   [Google Groups setup](google-groups.md). If you point `GOOGLE_SERVICE_ACCOUNT_FILE` at a key
-   file, mount it into the container and `chmod 600` it; otherwise paste the key into
-   `GOOGLE_SERVICE_ACCOUNT_JSON` in `.env`.
-4. **Start the app:**
-   ```sh
-   docker compose up -d --build
-   docker compose ps            # should show "healthy" after ~30s
-   curl http://127.0.0.1:8000/healthz
-   ```
-   The app listens only on `127.0.0.1:8000`. The database lives in the `tracker-data` Docker
-   volume, so it survives rebuilds and `docker compose down` (but not `down -v`).
-5. **Point Caddy at it.** Copy `deploy/Caddyfile.example` to `/etc/caddy/Caddyfile`, replace the
-   hostname, then:
-   ```sh
-   sudo systemctl reload caddy
-   ```
-   Visit `https://your.host` and sign in. Caddy sends `X-Forwarded-*` headers, which the app
-   honors.
-
-**Updating:** `git pull && docker compose up -d --build`. Migrations run on start. Take a
-backup first (below).
-
-**Logs:** `docker compose logs -f app`.
-
-## Backup and restore
-
-The database is a single SQLite file inside the `tracker-data` volume.
-
-**Back up** (safe while the app is running; uses SQLite's online backup):
+## 1. Sign in to Cloudflare
 
 ```sh
-deploy/backup.sh                     # writes backups/tracker-YYYYmmdd-HHMMSS.db
-deploy/backup.sh /path/to/file.db    # or choose the destination
+npx wrangler login
 ```
 
-Nightly backups via cron (`crontab -e`), keeping 30 days:
-
-```cron
-15 3 * * * cd /home/you/board_tracker && deploy/backup.sh >/dev/null && find backups -name 'tracker-*.db' -mtime +30 -delete
-```
-
-Copy `backups/` somewhere off the machine too, with `rsync`, `rclone`, or similar.
-
-**Restore** (stops the app, swaps in the backup with the right file ownership, starts the app):
+## 2. Create the database
 
 ```sh
-deploy/restore.sh backups/tracker-20261009-031500.db
+npx wrangler d1 create btrack
 ```
 
-You can open any backup file directly with `sqlite3 backups/<file>.db` to inspect it. The
-admin CSV exports are also a handy human-readable snapshot.
+It prints a `database_id`. Put it in `wrangler.jsonc`, replacing the placeholder:
+
+```jsonc
+"d1_databases": [
+  { "binding": "DB", "database_name": "btrack", "database_id": "<the id it printed>",
+    "migrations_dir": "migrations" }
+]
+```
+
+## 3. Create the schema
+
+```sh
+npx wrangler d1 migrations apply btrack --remote
+```
+
+`migrations/0001_initial.sql` is the single source of truth for the schema: the same
+file builds the local SQLite database the tests run against. To change the schema, add
+`migrations/0002_*.sql` and apply it the same way.
+
+## 4. Decide the hostname
+
+`BASE_URL` must be the address people actually type. It builds the OAuth redirect URI
+(`BASE_URL/auth/callback`) and decides whether cookies are HTTPS-only, so pointing it at
+the wrong host breaks sign-in with `redirect_uri_mismatch`.
+
+There are two hostnames available, and it's worth picking one before deploying rather than
+changing it later — each change means editing the OAuth client's redirect URIs too.
+
+**Your own domain** (recommended if you have one). The zone must already be on Cloudflare.
+You attach it in step 8:
+
+```jsonc
+"BASE_URL": "https://stuff.example.edu"
+```
+
+**The free workers.dev address.** The shape is strictly
+`<worker-name>.<your-account-subdomain>.workers.dev` — the account subdomain is a single
+label, so `stuff.my.team.workers.dev` is not a valid hostname. The worker name is the
+`"name"` field at the top of `wrangler.jsonc`, and the account subdomain is shown in the
+dashboard under **Workers & Pages**:
+
+```jsonc
+"name": "stuff",
+"BASE_URL": "https://stuff.<your-account-subdomain>.workers.dev"
+```
+
+## 5. Set the public config
+
+Edit the rest of the `vars` block in `wrangler.jsonc`:
+
+```jsonc
+"vars": {
+  "ENV": "production",
+  "DEV_LOGIN": "0",
+  "BASE_URL": "https://stuff.example.edu",
+  "GOOGLE_CLIENT_ID": "<oauth client id>",
+  "GOOGLE_USERS_GROUP": "btrack-users@lists.berkeley.edu",
+  "GOOGLE_ADMINS_GROUP": "btrack-admins@lists.berkeley.edu"
+}
+```
+
+## 6. Set the secrets
+
+Secrets never go in `wrangler.jsonc`; they are encrypted by Cloudflare.
+
+```sh
+python3 -c "import secrets; print(secrets.token_urlsafe(48))" | npx wrangler secret put SECRET_KEY
+npx wrangler secret put GOOGLE_CLIENT_SECRET
+npx wrangler secret put GOOGLE_SERVICE_ACCOUNT_JSON   # paste the whole key JSON
+```
+
+`GOOGLE_SERVICE_ACCOUNT_JSON` holds the Cloud Identity service-account key as inline
+JSON — Workers has no filesystem, so the file-path option isn't available there. See
+[Google Groups setup](google-groups.md) for how to create it, and
+[Google OAuth setup](google-oauth.md) for the client ID and secret.
+
+## 7. Deploy
+
+```sh
+uv run pywrangler deploy
+```
+
+## 8. Put it on your own domain
+
+Skip this if you're staying on workers.dev.
+
+1. Make sure the zone (`example.edu`) is on your Cloudflare account — its nameservers must
+   point at Cloudflare. A subdomain of a zone you don't control won't work.
+2. **Workers & Pages → your worker → Settings → Domains & Routes → Add → Custom Domain**,
+   and enter the full hostname, e.g. `stuff.example.edu`.
+3. Cloudflare creates the DNS record and issues the certificate itself. There's no CNAME to
+   maintain by hand, and it usually takes under a minute.
+4. Check `BASE_URL` in `wrangler.jsonc` matches that hostname, then `uv run pywrangler deploy`
+   again if you changed it.
+5. Once the custom domain serves the app, **disable the workers.dev route** in the same
+   Domains & Routes panel. Leaving both live means two hostnames with separate sessions, and
+   sign-ins started on the workers.dev one bounce to the custom domain.
+
+## 9. Register the redirect URI and sign in
+
+Add `BASE_URL/auth/callback` (e.g. `https://stuff.example.edu/auth/callback`) to the OAuth
+client's **Authorized redirect URIs** — see [Google OAuth setup](google-oauth.md). If you
+deployed on workers.dev first and later moved to a custom domain, add the new one; you can
+drop the old entry once the workers.dev route is disabled.
+
+Then open the site. The first admin must already be a member of `GOOGLE_ADMINS_GROUP`, and
+of `GOOGLE_USERS_GROUP` to get in at all.
+
+## Running locally
+
+Against a local D1 database, with the dev login form instead of Google:
+
+```sh
+npx wrangler d1 execute btrack --local --file=migrations/0001_initial.sql   # once
+uv run pywrangler dev
+```
+
+`.dev.vars` supplies the local settings (`DEV_LOGIN=1`) and is gitignored. Local state
+lives in `.wrangler/`.
+
+For a faster loop without the Workers runtime, the same app runs under uvicorn against a
+plain SQLite file — see README.md. The tests use that path, so they run in about a second.
+
+## Backups
+
+D1 exports the whole database to a file:
+
+```sh
+npx wrangler d1 export btrack --remote --output btrack-$(date +%Y%m%d).sql
+```
+
+Keep those somewhere off Cloudflare. To restore into a fresh database:
+
+```sh
+npx wrangler d1 execute btrack --remote --file=btrack-20260101.sql
+```
+
+Cloudflare also keeps point-in-time restores for D1; `wrangler d1 time-travel` can roll a
+database back within the retention window.
+
+## Logs and troubleshooting
+
+```sh
+npx wrangler tail            # live logs from the deployed Worker
+```
+
+- **`redirect_uri_mismatch` on sign-in** — `BASE_URL` and the hostname you actually visited
+  disagree, or that exact callback URL isn't in the OAuth client. They must match down to the
+  scheme and host, with no trailing slash.
+- **The site loads but sign-in redirects to a different hostname** — `BASE_URL` still points
+  at the old address. Update it and redeploy; disable the route you're no longer using.
+- **500 on every page** — usually a missing secret. `npx wrangler secret list` shows which
+  are set; `Settings.validate()` refuses to start without the Google config unless
+  `DEV_LOGIN=1`.
+- **"can't start new thread"** — a route or dependency was defined as `def` instead of
+  `async def`. Workers has no threads, and FastAPI would otherwise run it in a threadpool.
+- **Sign-in says you're not on the access list** — the account isn't a direct member of
+  `GOOGLE_USERS_GROUP`. Nested groups are not followed; see
+  [Google Groups setup](google-groups.md).
+- **Dependency fails to bundle** — it needs a C extension with no WebAssembly wheel. Keep
+  such packages (uvicorn, pytest, ruff) in the `dev` dependency group so they stay out of
+  the Worker bundle.

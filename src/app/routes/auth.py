@@ -3,7 +3,6 @@
 import logging
 from typing import Annotated
 
-from authlib.integrations.starlette_client import OAuthError
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import RedirectResponse
 
@@ -50,7 +49,7 @@ def _check_group_access(request: Request, email: str) -> tuple[bool, str | None]
 
 
 @router.get("/login", name="login")
-def login(request: Request):
+async def login(request: Request):
     if current_user(request):
         return redirect(request, "/")
     return render(request, "login.html")
@@ -71,6 +70,8 @@ async def login_google(request: Request):
 
 @router.get("/auth/callback", name="auth_callback")
 async def auth_callback(request: Request):
+    from authlib.integrations.starlette_client import OAuthError  # see make_oauth
+
     try:
         token = await request.app.state.oauth.google.authorize_access_token(request)
     except OAuthError as exc:
@@ -87,14 +88,14 @@ async def auth_callback(request: Request):
 
 
 @router.get("/dev-login", name="dev_login")
-def dev_login_form(request: Request):
+async def dev_login_form(request: Request):
     if not get_settings(request).dev_login:
         raise HTTPException(status_code=404)
     return render(request, "dev_login.html")
 
 
 @router.post("/dev-login", dependencies=[Depends(verify_csrf)])
-def dev_login(
+async def dev_login(
     request: Request,
     email: Annotated[str, Form()],
     name: Annotated[str, Form()] = "",
@@ -111,6 +112,6 @@ def dev_login(
 
 
 @router.post("/logout", name="logout", dependencies=[Depends(verify_csrf)])
-def logout(request: Request):
+async def logout(request: Request):
     request.session.clear()
     return RedirectResponse(app_path(request, "/login"), status_code=303)
