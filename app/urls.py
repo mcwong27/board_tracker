@@ -1,11 +1,11 @@
-"""URL helpers that respect a BASE_URL path prefix (e.g. https://host/boards)."""
+"""URL helpers that respect a BASE_URL path prefix (e.g. https://host/assets)."""
 
 from fastapi import Request
 from fastapi.responses import RedirectResponse
 
 
 def app_path(request: Request, path: str) -> str:
-    """Turn an app-relative path like "/boards/3" into the path the browser should use."""
+    """Turn an app-relative path like "/assets/3" into the path the browser should use."""
     return request.app.state.settings.root_path + path
 
 

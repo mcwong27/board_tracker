@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}Dev login · Board Tracker{% endblock %}
+{% block title %}Dev login · bTrack{% endblock %}
 {% block content %}
 <section class="narrow">
   <h1>Dev login</h1>
@@ -9,6 +9,7 @@
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
     <label>Email <input type="email" name="email" value="{{ email or '' }}" required autofocus></label>
     <label>Name <input type="text" name="name"></label>
+    <label><input type="checkbox" name="admin"> Sign in as admin (dev only; replaces the real admins group)</label>
     <button>Sign in</button>
   </form>
 </section>

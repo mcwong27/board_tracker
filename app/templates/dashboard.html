@@ -1,36 +1,46 @@
 {% extends "base.html" %}
+{% block title %}Dashboard · bTrack{% endblock %}
 {% block content %}
-<div class="row" style="justify-content: space-between">
-  <h1>Boards</h1>
-  <span class="muted">{{ available }} of {{ rows|length }} available</span>
-</div>
-<nav class="pills" aria-label="Filter by type">
-  <a href="{{ path('/') }}" {% if selected_type is none %}aria-current="page"{% endif %}>All</a>
-  {% for t in types %}
-  <a href="{{ path('/?type=%d' % t.id) }}" {% if selected_type == t.id %}aria-current="page"{% endif %}>{{ t.name }}</a>
-  {% endfor %}
-</nav>
-{% if rows %}
+<h1>Dashboard</h1>
+
+<h2>Assets you have out</h2>
+{% if current %}
 <div class="table-wrap">
 <table>
-  <thead><tr><th>Board</th><th>Type</th><th>Chip</th><th>Location</th><th>Status</th><th>Holder</th><th>Since</th><th></th></tr></thead>
+  <thead><tr><th>Asset</th><th>Type</th><th>Since</th><th>Note</th><th></th></tr></thead>
   <tbody>
-  {% for board, active in rows %}
+  {% for c in current %}
+  {% set asset = c.asset %}{% set active = c %}{% set back = '/' %}
   <tr>
-    <td><a href="{{ path('/boards/%d' % board.id) }}">{{ board.name }}</a></td>
-    <td>{{ board.type.name }}</td>
-    <td>{{ board.chip_mounted }}</td>
-    <td>{{ board.location }}</td>
-    <td>{% include "_status.html" %}</td>
-    <td>{% if active %}{{ active.user_name or active.user_email }}{% if active.user_name and active.user_name != active.user_email %}<br><span class="muted">{{ active.user_email }}</span>{% endif %}{% endif %}</td>
-    <td>{% if active %}{{ active.checked_out_at|localtime }}{% endif %}</td>
-    <td>{% with back = '/' ~ ('?type=%d' % selected_type if selected_type else '') %}{% include "_actions.html" %}{% endwith %}</td>
+    <td><a href="{{ path('/assets/%d' % asset.id) }}">{{ asset.name }}</a></td>
+    <td>{{ asset.type.name }}</td>
+    <td>{{ c.checked_out_at|localtime }}</td>
+    <td class="prewrap">{{ c.notes }}</td>
+    <td>{% include "_actions.html" %}</td>
   </tr>
   {% endfor %}
   </tbody>
 </table>
 </div>
 {% else %}
-<p class="muted">No boards yet.{% if user.is_admin %} <a href="{{ path('/admin/boards/new') }}">Add one</a>.{% endif %}</p>
+<p class="muted">You don't have any assets checked out. <a href="{{ path('/assets') }}">Browse the asset overview</a>.</p>
+{% endif %}
+
+{% if past %}
+<h2>Past checkouts</h2>
+<div class="table-wrap">
+<table>
+  <thead><tr><th>Asset</th><th>Checked out</th><th>Returned</th></tr></thead>
+  <tbody>
+  {% for c in past %}
+  <tr>
+    <td><a href="{{ path('/assets/%d' % c.asset.id) }}">{{ c.asset.name }}</a></td>
+    <td>{{ c.checked_out_at|localtime }}</td>
+    <td>{{ c.returned_at|localtime }}</td>
+  </tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
 {% endif %}
 {% endblock %}

@@ -27,10 +27,14 @@ The deployment files are `Dockerfile` and `docker-compose.yml` at the top level,
    git clone <this repo> board_tracker && cd board_tracker
    cp .env.example .env
    chmod 600 .env
-   $EDITOR .env    # SECRET_KEY, GOOGLE_CLIENT_ID/SECRET, BASE_URL=https://your.host, ADMIN_EMAILS
+   $EDITOR .env    # SECRET_KEY, GOOGLE_CLIENT_ID/SECRET, BASE_URL=https://your.host,
+                   # GOOGLE_SERVICE_ACCOUNT_FILE or _JSON, GOOGLE_USERS_GROUP, GOOGLE_ADMINS_GROUP
    ```
-   Keep `ENV=production` and `DEV_LOGIN=0`. For the Google values, see
-   [Google OAuth setup](google-oauth.md).
+   Keep `ENV=production` and `DEV_LOGIN=0`. For the sign-in client see
+   [Google OAuth setup](google-oauth.md); for the access list and admin rights see
+   [Google Groups setup](google-groups.md). If you point `GOOGLE_SERVICE_ACCOUNT_FILE` at a key
+   file, mount it into the container and `chmod 600` it; otherwise paste the key into
+   `GOOGLE_SERVICE_ACCOUNT_JSON` in `.env`.
 4. **Start the app:**
    ```sh
    docker compose up -d --build

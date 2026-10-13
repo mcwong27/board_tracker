@@ -7,6 +7,7 @@ from app.config import Settings
 from app.db import make_engine, make_sessionmaker
 from app.main import create_app
 from app.migrate import upgrade
+from app.models import AssetType
 
 
 @pytest.fixture
@@ -27,11 +28,18 @@ def db(db_path):
 ADMIN = "admin@berkeley.edu"
 
 
+def make_type(db, name: str) -> AssetType:
+    """A fresh database has no asset types, so tests create the ones they need."""
+    asset_type = AssetType(name=name)
+    db.add(asset_type)
+    db.commit()
+    return asset_type
+
+
 def make_settings(db_path: str, **overrides) -> Settings:
     values = dict(
         secret_key="test-secret",
         dev_login=True,
-        admin_emails=frozenset({ADMIN}),
         database_path=db_path,
     )
     values.update(overrides)
@@ -59,8 +67,12 @@ def csrf_from(client: TestClient, url: str) -> str:
 
 
 def login(client: TestClient, email: str, name: str = "") -> None:
+    """Dev-login as `email`. Logging in as ADMIN ticks the dev admin checkbox."""
     token = csrf_from(client, "/dev-login")
-    resp = client.post("/dev-login", data={"email": email, "name": name, "csrf_token": token})
+    data = {"email": email, "name": name, "csrf_token": token}
+    if email == ADMIN:
+        data["admin"] = "on"
+    resp = client.post("/dev-login", data=data)
     assert resp.status_code == 303, resp.text
 
 

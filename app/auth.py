@@ -70,8 +70,9 @@ def current_user(request: Request) -> User | None:
     data = request.session.get("user")
     if not data:
         return None
-    settings = get_settings(request)
-    return User(email=data["email"], name=data["name"], is_admin=settings.is_admin(data["email"]))
+    # is_admin is decided once at sign-in time (see app/routes/auth.py) and stored
+    # in the signed session cookie here — never recomputed from user-controlled input.
+    return User(email=data["email"], name=data["name"], is_admin=bool(data.get("is_admin", False)))
 
 
 def require_user(request: Request) -> User:

@@ -1,14 +1,14 @@
-{#- Check out / return buttons for one board. Expects: board, active (checkout or none), back. -#}
-{% if board.retired %}
+{#- Check out / return buttons for one asset. Expects: asset, active (checkout or none), back. -#}
+{% if asset.retired %}
   <span class="muted">Retired</span>
 {% elif active is none %}
-  <form class="inline" method="post" action="{{ path('/boards/%d/checkout' % board.id) }}">
+  <form class="inline" method="post" action="{{ path('/assets/%d/checkout' % asset.id) }}">
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
     <input type="hidden" name="back" value="{{ back }}">
     <button>Check out</button>
   </form>
 {% elif active.user_email == user.email or user.is_admin %}
-  <form class="inline" method="post" action="{{ path('/boards/%d/return' % board.id) }}">
+  <form class="inline" method="post" action="{{ path('/assets/%d/return' % asset.id) }}">
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
     <input type="hidden" name="back" value="{{ back }}">
     <button class="secondary">{% if active.user_email == user.email %}Return{% else %}Force return{% endif %}</button>

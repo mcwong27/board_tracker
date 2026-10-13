@@ -1,32 +1,32 @@
 {% extends "base.html" %}
-{% block title %}{{ board.name }} · Board Tracker{% endblock %}
+{% block title %}{{ asset.name }} · bTrack{% endblock %}
 {% block content %}
 <div class="row">
-  <h1>{{ board.name }}</h1>
+  <h1>{{ asset.name }}</h1>
   {% include "_status.html" %}
-  {% if user.is_admin %}<a href="{{ path('/admin/boards/%d/edit' % board.id) }}">Edit</a>{% endif %}
+  {% if user.is_admin %}<a href="{{ path('/admin/assets/%d/edit' % asset.id) }}">Edit</a>{% endif %}
 </div>
 {% if error %}<p class="banner error">{{ error }}</p>{% endif %}
 
 <dl class="details">
-  <dt>Type</dt><dd>{{ board.type.name }}</dd>
-  <dt>Serial</dt><dd>{{ board.serial or '—' }}</dd>
-  <dt>Chip mounted</dt><dd>{{ board.chip_mounted or '—' }}</dd>
-  <dt>Location</dt><dd>{{ board.location or '—' }}</dd>
-  {% if board.notes %}<dt>Notes</dt><dd class="prewrap">{{ board.notes }}</dd>{% endif %}
+  <dt>Type</dt><dd>{{ asset.type.name }}</dd>
+  <dt>Serial</dt><dd>{{ asset.serial or '—' }}</dd>
+  <dt>Chip mounted</dt><dd>{{ asset.chip_mounted or '—' }}</dd>
+  <dt>Location</dt><dd>{{ asset.location or '—' }}</dd>
+  {% if asset.notes %}<dt>Notes</dt><dd class="prewrap">{{ asset.notes }}</dd>{% endif %}
   {% if active %}
   <dt>Held by</dt><dd>{{ active.user_name }} &lt;{{ active.user_email }}&gt; since {{ active.checked_out_at|localtime }}</dd>
   {% if active.notes %}<dt>Checkout note</dt><dd class="prewrap">{{ active.notes }}</dd>{% endif %}
   {% endif %}
 </dl>
 
-{% set back = '/boards/%d' % board.id %}
-{% if not board.retired and active is none %}
+{% set back = '/assets/%d' % asset.id %}
+{% if not asset.retired and active is none %}
 <h2>Check out</h2>
-<form method="post" action="{{ path('/boards/%d/checkout' % board.id) }}" class="stack">
+<form method="post" action="{{ path('/assets/%d/checkout' % asset.id) }}" class="stack">
   <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
   <label>Note (optional) <input type="text" name="notes" maxlength="500" placeholder="e.g. for the lab 3 demo"></label>
-  <div><button>Check out {{ board.name }}</button></div>
+  <div><button>Check out {{ asset.name }}</button></div>
 </form>
 {% elif active %}
 <p>{% include "_actions.html" %}</p>

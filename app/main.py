@@ -13,7 +13,7 @@ from app.auth import LoginRequired, make_oauth
 from app.config import Settings
 from app.db import make_engine, make_sessionmaker
 from app.migrate import upgrade
-from app.routes import admin, auth, boards
+from app.routes import admin, assets, auth, fpga
 from app.templating import render
 from app.urls import app_path, redirect, route_path
 
@@ -26,7 +26,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         log.warning("DEV_LOGIN is enabled: anyone can sign in as any @berkeley.edu address.")
 
     app = FastAPI(
-        title="Lab Board Tracker",
+        title="bTrack",
         root_path=settings.root_path,
         docs_url=None,
         redoc_url=None,
@@ -41,7 +41,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.add_middleware(
         SessionMiddleware,
         secret_key=settings.secret_key,
-        session_cookie="board_tracker_session",
+        session_cookie="btrack_session",
         max_age=14 * 24 * 3600,
         path=settings.root_path or "/",
         same_site="lax",
@@ -72,6 +72,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return PlainTextResponse("ok")
 
     app.include_router(auth.router)
-    app.include_router(boards.router)
+    app.include_router(assets.router)
+    app.include_router(fpga.router)
     app.include_router(admin.router)
     return app

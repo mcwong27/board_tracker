@@ -2,10 +2,38 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.auth import IdentityError, validate_identity
+from app.groups import GroupsError
 from app.main import create_app
 from tests.conftest import csrf_from, login, make_settings
 
 GOOD = {"email": "Oski@Berkeley.edu", "email_verified": True, "hd": "berkeley.edu", "name": "Oski"}
+
+USERS_GROUP = "boards-users@berkeley.edu"
+ADMINS_GROUP = "boards-admins@berkeley.edu"
+
+
+class FakeGroupsClient:
+    """Stands in for app.groups.GroupsClient; tests must never hit the network."""
+
+    def __init__(self, users: set[str] = frozenset(), admins: set[str] = frozenset(), error=None):
+        self.users = set(users)
+        self.admins = set(admins)
+        self.error = error
+
+    def is_member(self, group_email: str, user_email: str) -> bool:
+        if self.error is not None:
+            raise self.error
+        if group_email == USERS_GROUP:
+            return user_email in self.users
+        if group_email == ADMINS_GROUP:
+            return user_email in self.admins
+        raise AssertionError(f"unexpected group email: {group_email}")
+
+
+def fake_groups(monkeypatch, **kwargs) -> FakeGroupsClient:
+    client = FakeGroupsClient(**kwargs)
+    monkeypatch.setattr("app.routes.auth.get_client", lambda settings: client)
+    return client
 
 
 def test_valid_identity_is_normalized():
@@ -41,7 +69,15 @@ def fake_token(monkeypatch, app, userinfo):
 @pytest.fixture
 def oauth_app(db_path):
     application = create_app(
-        make_settings(db_path, dev_login=False, google_client_id="id", google_client_secret="s")
+        make_settings(
+            db_path,
+            dev_login=False,
+            google_client_id="id",
+            google_client_secret="s",
+            google_service_account_json='{"type": "service_account"}',
+            google_users_group=USERS_GROUP,
+            google_admins_group=ADMINS_GROUP,
+        )
     )
     yield application
     application.state.engine.dispose()
@@ -58,10 +94,47 @@ def test_oauth_callback_rejects_non_berkeley(monkeypatch, oauth_app):
 
 def test_oauth_callback_accepts_berkeley(monkeypatch, oauth_app):
     fake_token(monkeypatch, oauth_app, GOOD)
+    fake_groups(monkeypatch, users={"oski@berkeley.edu"})
     with TestClient(oauth_app, follow_redirects=False) as client:
         resp = client.get("/auth/callback")
         assert resp.status_code == 303
         assert client.get("/").status_code == 200
+
+
+def test_oauth_callback_rejects_non_member_of_users_group(monkeypatch, oauth_app):
+    fake_token(monkeypatch, oauth_app, GOOD)
+    fake_groups(monkeypatch, users=set())  # not a member of the users group
+    with TestClient(oauth_app, follow_redirects=False) as client:
+        resp = client.get("/auth/callback")
+        assert resp.status_code == 403
+        assert "access list" in resp.text
+        assert client.get("/").status_code == 303  # still signed out
+
+
+def test_oauth_callback_grants_non_admin_session(monkeypatch, oauth_app):
+    fake_token(monkeypatch, oauth_app, GOOD)
+    fake_groups(monkeypatch, users={"oski@berkeley.edu"}, admins=set())
+    with TestClient(oauth_app, follow_redirects=False) as client:
+        client.get("/auth/callback")
+        assert client.get("/admin").status_code == 403
+
+
+def test_oauth_callback_grants_admin_session(monkeypatch, oauth_app):
+    fake_token(monkeypatch, oauth_app, GOOD)
+    fake_groups(monkeypatch, users={"oski@berkeley.edu"}, admins={"oski@berkeley.edu"})
+    with TestClient(oauth_app, follow_redirects=False) as client:
+        client.get("/auth/callback")
+        assert client.get("/admin").status_code == 200
+
+
+def test_oauth_callback_fails_closed_on_groups_api_error(monkeypatch, oauth_app):
+    fake_token(monkeypatch, oauth_app, GOOD)
+    fake_groups(monkeypatch, error=GroupsError("Cloud Identity API returned 500"))
+    with TestClient(oauth_app, follow_redirects=False) as client:
+        resp = client.get("/auth/callback")
+        assert resp.status_code == 403
+        assert "unavailable" in resp.text
+        assert client.get("/").status_code == 303  # still signed out
 
 
 def test_login_google_sends_hd_hint(oauth_app):
@@ -90,17 +163,32 @@ def test_dev_login_rejects_non_berkeley(client):
 
 
 def test_unauthenticated_redirects_to_login_then_back(client):
-    resp = client.get("/me")
+    resp = client.get("/assets")
     assert resp.status_code == 303
     assert resp.headers["location"] == "/login"
     token = csrf_from(client, "/dev-login")
     resp = client.post("/dev-login", data={"email": "oski@berkeley.edu", "csrf_token": token})
-    assert resp.headers["location"] == "/me"
+    assert resp.headers["location"] == "/assets"
 
 
 def test_post_without_csrf_rejected(client):
     resp = client.post("/dev-login", data={"email": "oski@berkeley.edu"})
     assert resp.status_code == 403
+
+
+def test_dev_login_admin_checkbox_grants_admin(client):
+    token = csrf_from(client, "/dev-login")
+    client.post(
+        "/dev-login",
+        data={"email": "oski@berkeley.edu", "admin": "on", "csrf_token": token},
+    )
+    assert client.get("/admin").status_code == 200
+
+
+def test_dev_login_without_checkbox_is_not_admin(client):
+    token = csrf_from(client, "/dev-login")
+    client.post("/dev-login", data={"email": "oski@berkeley.edu", "csrf_token": token})
+    assert client.get("/admin").status_code == 403
 
 
 def test_logout(client):
@@ -116,10 +204,10 @@ def test_healthz(client):
 
 
 def test_base_url_prefix(db_path):
-    """Behind a proxy at https://host/boards, links and redirects carry the prefix."""
-    settings = make_settings(db_path, base_url="https://example.org/boards")
+    """Behind a proxy at https://host/assets, links and redirects carry the prefix."""
+    settings = make_settings(db_path, base_url="https://example.org/assets")
     with TestClient(create_app(settings), follow_redirects=False) as client:
-        resp = client.get("/boards/")
+        resp = client.get("/assets/")
         assert resp.status_code == 303
-        assert resp.headers["location"] == "/boards/login"
-        assert 'href="/boards/dev-login"' in client.get("/boards/login").text
+        assert resp.headers["location"] == "/assets/login"
+        assert 'href="/assets/dev-login"' in client.get("/assets/login").text

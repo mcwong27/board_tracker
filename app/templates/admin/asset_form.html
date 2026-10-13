@@ -1,10 +1,10 @@
 {% extends "base.html" %}
-{% block title %}{{ 'Edit ' ~ board.name if board else 'Add board' }} · Board Tracker{% endblock %}
+{% block title %}{{ 'Edit ' ~ asset.name if asset else 'Add asset' }} · bTrack{% endblock %}
 {% block content %}
-<h1>{{ 'Edit ' ~ board.name if board else 'Add board' }}</h1>
+<h1>{{ 'Edit ' ~ asset.name if asset else 'Add asset' }}</h1>
 {% if error %}<p class="banner error">{{ error }}</p>{% endif %}
 <form method="post" class="stack"
-      action="{{ path('/admin/boards/%d/edit' % board.id) if board else path('/admin/boards/new') }}">
+      action="{{ path('/admin/assets/%d/edit' % asset.id) if asset else path('/admin/assets/new') }}">
   <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
   <label>Name <input type="text" name="name" value="{{ values.name }}" maxlength="200" required autofocus></label>
   <label>Type
@@ -20,8 +20,8 @@
   <label>Location <input type="text" name="location" value="{{ values.location }}" maxlength="200"></label>
   <label>Notes <textarea name="notes" rows="4">{{ values.notes }}</textarea></label>
   <div class="row">
-    <button>{{ 'Save' if board else 'Add board' }}</button>
-    <a href="{{ path('/boards/%d' % board.id) if board else path('/admin') }}">Cancel</a>
+    <button>{{ 'Save' if asset else 'Add asset' }}</button>
+    <a href="{{ path('/assets/%d' % asset.id) if asset else path('/admin') }}">Cancel</a>
   </div>
 </form>
 {% endblock %}
