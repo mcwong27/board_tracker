@@ -1,10 +1,10 @@
 {
 	"$schema": "node_modules/wrangler/config-schema.json",
 	"name": "btrack",
-	"main": "src/entry.py",
+	"main": "src/index.ts",
 	"compatibility_date": "2026-10-06",
 	"compatibility_flags": [
-		"python_workers"
+		"nodejs_compat"
 	],
 	"observability": {
 		"enabled": true
