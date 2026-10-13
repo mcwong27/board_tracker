@@ -75,17 +75,24 @@ People sign in with Berkeley Google accounts; admins manage inventory.
 ## Stack
 - Python, FastAPI, Jinja server-rendered templates, minimal CSS, no JS framework
   (a few lines of vanilla JS for the theme toggle and timeline hover cards)
-- SQLite via SQLAlchemy, Alembic migrations, uv for dependencies
+- Runs as a Python Worker on Cloudflare (FastAPI on Pyodide); data in D1 (managed SQLite)
+- No ORM: plain SQL against a small async Database interface with two backends, D1 in
+  production and a local SQLite file for tests and the uvicorn dev loop. D1 is SQLite, so
+  the same statements serve both. uv for dependencies
 
-## Deployment (host TBD, keep it host-agnostic)
-- All config via env vars; .env.example documents each one
-  (SECRET_KEY, GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, BASE_URL, GOOGLE_SERVICE_ACCOUNT_FILE /
-  GOOGLE_SERVICE_ACCOUNT_JSON, GOOGLE_USERS_GROUP, GOOGLE_ADMINS_GROUP, DATABASE_PATH,
-  DEV_LOGIN, ENV)
-- Dockerfile + docker-compose.yml; SQLite file on a mounted volume so data survives rebuilds
-- Works behind a reverse proxy at BASE_URL (honor X-Forwarded headers)
-- README: local dev; step-by-step Google OAuth client setup incl. redirect URIs; Google Groups
-  setup; deploying on any Linux box with Docker + Caddy for HTTPS; backing up and restoring the DB
+## Deployment (Cloudflare Workers)
+- Public config in wrangler.jsonc `vars` (ENV, BASE_URL, GOOGLE_CLIENT_ID,
+  GOOGLE_USERS_GROUP, GOOGLE_ADMINS_GROUP, DEV_LOGIN); secrets via `wrangler secret put`
+  (SECRET_KEY, GOOGLE_CLIENT_SECRET, GOOGLE_SERVICE_ACCOUNT_JSON). The same settings are
+  read from env vars when running locally; .env.example documents each one.
+- Schema changes are numbered .sql files in migrations/, applied with
+  `wrangler d1 migrations apply`. The same files build the test database.
+- Every route and dependency must be async: Workers has no threads. Runtime dependencies
+  must work under Pyodide, so anything needing a C extension stays in the dev group.
+- Works behind a BASE_URL path prefix (all links built through `path()`/`app_path`).
+- Backups: `wrangler d1 export`, plus D1 time-travel within the retention window.
+- README: local dev; Google OAuth client setup incl. redirect URIs; Google Groups setup;
+  docs/deployment.md covers deploying, secrets, migrations and backups.
 
 ## Quality
 - pytest tests: no double checkout, only holder/admin can return, non-berkeley emails rejected,

@@ -26,11 +26,11 @@ from __future__ import annotations
 import functools
 import threading
 
-import httpx2
-from google.auth.exceptions import GoogleAuthError
-from google.oauth2 import service_account
-
 from app.config import ConfigError, Settings
+
+# httpx2, google.auth and google.oauth2 are imported inside the functions that use them:
+# importing them while this module is being evaluated fails on Workers with
+# "Top-level await in module is unsettled".
 
 API_BASE = "https://cloudidentity.googleapis.com/v1"
 SCOPES = ("https://www.googleapis.com/auth/cloud-identity.groups.readonly",)
@@ -52,7 +52,7 @@ class _HttpxAuthRequest:
     this project doesn't otherwise depend on; httpx2 is already a dependency.
     """
 
-    def __init__(self, client: httpx2.Client) -> None:
+    def __init__(self, client) -> None:
         self._client = client
 
     def __call__(self, url, method="GET", body=None, headers=None, timeout=None, **_kwargs):
@@ -61,13 +61,13 @@ class _HttpxAuthRequest:
             request_kwargs["timeout"] = timeout
         try:
             response = self._client.request(method, url, **request_kwargs)
-        except httpx2.HTTPError as exc:
+        except Exception as exc:  # noqa: BLE001 - httpx2.HTTPError, imported lazily
             raise GroupsError(f"Network error reaching {url}: {exc}") from exc
         return _HttpxAuthResponse(response)
 
 
 class _HttpxAuthResponse:
-    def __init__(self, response: httpx2.Response) -> None:
+    def __init__(self, response) -> None:
         self._response = response
 
     @property
@@ -86,7 +86,9 @@ class _HttpxAuthResponse:
 class GroupsClient:
     """Resolves Cloud Identity group resource names and checks direct membership."""
 
-    def __init__(self, credentials, http_client: httpx2.Client | None = None) -> None:
+    def __init__(self, credentials, http_client=None) -> None:
+        import httpx2
+
         self._credentials = credentials
         self._http = http_client or httpx2.Client(timeout=10.0)
         self._auth_request = _HttpxAuthRequest(self._http)
@@ -95,6 +97,8 @@ class GroupsClient:
 
     @classmethod
     def from_settings(cls, settings: Settings) -> GroupsClient:
+        from google.oauth2 import service_account
+
         try:
             info = settings.service_account_info()
             credentials = service_account.Credentials.from_service_account_info(
@@ -105,6 +109,8 @@ class GroupsClient:
         return cls(credentials)
 
     def _access_token(self) -> str:
+        from google.auth.exceptions import GoogleAuthError
+
         if not self._credentials.valid:
             try:
                 self._credentials.refresh(self._auth_request)
@@ -112,7 +118,7 @@ class GroupsClient:
                 raise GroupsError(f"Failed to obtain a Cloud Identity access token: {exc}") from exc
         return self._credentials.token
 
-    def _get(self, path: str, params: dict) -> httpx2.Response:
+    def _get(self, path: str, params: dict):
         token = self._access_token()
         try:
             return self._http.get(
@@ -120,7 +126,7 @@ class GroupsClient:
                 params=params,
                 headers={"Authorization": f"Bearer {token}"},
             )
-        except httpx2.HTTPError as exc:
+        except Exception as exc:  # noqa: BLE001 - httpx2.HTTPError, imported lazily
             raise GroupsError(f"Network error calling the Cloud Identity API: {exc}") from exc
 
     def _group_resource_name(self, group_email: str) -> str:

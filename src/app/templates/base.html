@@ -32,7 +32,8 @@
     <button class="link">Sign out</button>
   </form>
   {% else %}
-  <button class="theme-toggle" type="button" id="theme-toggle" aria-live="polite">Theme</button>
+  {# Signed out there's no nav to push this over, so send it right itself. #}
+  <button class="theme-toggle push-right" type="button" id="theme-toggle" aria-live="polite">Theme</button>
   {% endif %}
 </header>
 <main>

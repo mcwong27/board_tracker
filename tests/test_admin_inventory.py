@@ -1,13 +1,15 @@
 """Admin management of asset types and the FPGA types/servers/counts grid."""
 
-from sqlalchemy import select
-
-from app.models import Asset, AssetType, FpgaPlacement, FpgaServer, FpgaType
-from tests.conftest import ADMIN, csrf_from, login, make_type, post
+from tests.conftest import ADMIN, csrf_from, login, make_type, post, query, query_one, run, value
 
 
-def ids(db, model, name):
-    return db.scalar(select(model.id).where(model.name == name))
+def ids(db, table: str, name: str):
+    return value(db, f"SELECT id FROM {table} WHERE name = ?", (name,))
+
+
+def placements(db) -> dict:
+    rows = query(db, "SELECT fpga_type_id, server_id, quantity FROM fpga_placement")
+    return {(r["fpga_type_id"], r["server_id"]): r["quantity"] for r in rows}
 
 
 # --- asset types ---------------------------------------------------------------
@@ -17,33 +19,38 @@ def test_rename_and_delete_asset_type(client, db):
     login(client, ADMIN)
     asset_type = make_type(db, "Oscilloscope")
 
-    resp = post(client, f"/admin/types/{asset_type.id}/rename", {"name": "Scope"}, page="/admin")
+    tid = asset_type["id"]
+    resp = post(client, f"/admin/types/{tid}/rename", {"name": "Scope"}, page="/admin")
     assert resp.status_code == 303
-    db.refresh(asset_type)
-    assert asset_type.name == "Scope"
+    assert query_one(db, "SELECT * FROM asset_type WHERE id = ?", (tid,))["name"] == "Scope"
 
-    resp = post(client, f"/admin/types/{asset_type.id}/delete", page="/admin")
+    resp = post(client, f"/admin/types/{tid}/delete", page="/admin")
     assert resp.status_code == 303
-    assert db.scalar(select(AssetType).where(AssetType.id == asset_type.id)) is None
+    assert query_one(db, "SELECT * FROM asset_type WHERE id = ?", (tid,)) is None
 
 
 def test_type_in_use_cannot_be_deleted(client, db):
     login(client, ADMIN)
     asset_type = make_type(db, "Cable")
-    db.add(Asset(name="HDMI-1", type=asset_type))
-    db.commit()
+    run(
+        db.execute(
+            "INSERT INTO asset (name, type_id, created_at)"
+            " VALUES ('HDMI-1', ?, '2026-01-01 00:00:00')",
+            (asset_type["id"],),
+        )
+    )
 
-    resp = post(client, f"/admin/types/{asset_type.id}/delete", page="/admin")
+    resp = post(client, f"/admin/types/{asset_type['id']}/delete", page="/admin")
     assert resp.status_code == 409
     assert "used by 1 asset" in resp.text
-    assert db.scalar(select(AssetType).where(AssetType.id == asset_type.id)) is not None
+    assert query_one(db, "SELECT * FROM asset_type WHERE id = ?", (asset_type["id"],)) is not None
 
 
 def test_rename_to_an_existing_name_is_rejected(client, db):
     login(client, ADMIN)
     make_type(db, "Alpha")
     beta = make_type(db, "Beta")
-    resp = post(client, f"/admin/types/{beta.id}/rename", {"name": "Alpha"}, page="/admin")
+    resp = post(client, f"/admin/types/{beta['id']}/rename", {"name": "Alpha"}, page="/admin")
     assert resp.status_code == 409
 
 
@@ -53,56 +60,51 @@ def test_rename_to_an_existing_name_is_rejected(client, db):
 def test_admin_can_add_fpga_type_and_server(client, db):
     login(client, ADMIN)
     assert post(client, "/admin/fpga/types", {"name": "Versal"}, page="/admin").status_code == 303
-    assert ids(db, FpgaType, "Versal") is not None
+    assert ids(db, "fpga_type", "Versal") is not None
     assert post(client, "/admin/fpga/types", {"name": "Versal"}, page="/admin").status_code == 409
 
     srv = {"name": "rack2-srv1", "notes": "PCIe gen4"}
     assert post(client, "/admin/fpga/servers", srv, page="/admin").status_code == 303
-    assert ids(db, FpgaServer, "rack2-srv1") is not None
+    assert ids(db, "fpga_server", "rack2-srv1") is not None
 
 
 def test_counts_grid_saves_and_clears_placements(client, db):
     login(client, ADMIN)
     post(client, "/admin/fpga/servers", {"name": "srv-a"}, page="/admin")
     post(client, "/admin/fpga/servers", {"name": "srv-b"}, page="/admin")
-    u250 = ids(db, FpgaType, "U250")
-    a, b = ids(db, FpgaServer, "srv-a"), ids(db, FpgaServer, "srv-b")
+    u250 = ids(db, "fpga_type", "U250")
+    a, b = ids(db, "fpga_server", "srv-a"), ids(db, "fpga_server", "srv-b")
 
     grid = {f"qty-{u250}-{a}": "4", f"qty-{u250}-{b}": "0"}
     assert post(client, "/admin/fpga/counts", grid, page="/admin").status_code == 303
-    placements = {
-        (p.fpga_type_id, p.server_id): p.quantity for p in db.scalars(select(FpgaPlacement))
-    }
-    assert placements == {(u250, a): 4}  # a zero stores nothing
+    assert placements(db) == {(u250, a): 4}  # a zero stores nothing
 
     # Updating an existing cell, and zeroing it again removes the row.
     assert (
         post(client, "/admin/fpga/counts", {f"qty-{u250}-{a}": "2"}, page="/admin").status_code
         == 303
     )
-    db.expire_all()
-    assert db.scalar(select(FpgaPlacement.quantity)) == 2
+    assert value(db, "SELECT quantity FROM fpga_placement") == 2
     assert (
         post(client, "/admin/fpga/counts", {f"qty-{u250}-{a}": "0"}, page="/admin").status_code
         == 303
     )
-    db.expire_all()
-    assert db.scalars(select(FpgaPlacement)).all() == []
+    assert placements(db) == {}
 
 
 def test_counts_grid_rejects_junk(client, db):
     login(client, ADMIN)
     post(client, "/admin/fpga/servers", {"name": "srv-a"}, page="/admin")
-    u250, a = ids(db, FpgaType, "U250"), ids(db, FpgaServer, "srv-a")
+    u250, a = ids(db, "fpga_type", "U250"), ids(db, "fpga_server", "srv-a")
     resp = post(client, "/admin/fpga/counts", {f"qty-{u250}-{a}": "lots"}, page="/admin")
     assert resp.status_code == 400
-    assert db.scalars(select(FpgaPlacement)).all() == []
+    assert placements(db) == {}
 
 
 def test_fpga_type_in_use_cannot_be_deleted(client, db):
     login(client, ADMIN)
     post(client, "/admin/fpga/servers", {"name": "srv-a"}, page="/admin")
-    u250, srv = ids(db, FpgaType, "U250"), ids(db, FpgaServer, "srv-a")
+    u250, srv = ids(db, "fpga_type", "U250"), ids(db, "fpga_server", "srv-a")
     post(
         client,
         "/fpga/new",
@@ -125,12 +127,11 @@ def test_fpga_type_in_use_cannot_be_deleted(client, db):
 def test_deleting_a_server_removes_its_placements(client, db):
     login(client, ADMIN)
     post(client, "/admin/fpga/servers", {"name": "srv-a"}, page="/admin")
-    u250, a = ids(db, FpgaType, "U250"), ids(db, FpgaServer, "srv-a")
+    u250, a = ids(db, "fpga_type", "U250"), ids(db, "fpga_server", "srv-a")
     post(client, "/admin/fpga/counts", {f"qty-{u250}-{a}": "3"}, page="/admin")
 
     assert post(client, f"/admin/fpga/servers/{a}/delete", page="/admin").status_code == 303
-    db.expire_all()
-    assert db.scalars(select(FpgaPlacement)).all() == []
+    assert placements(db) == {}
 
 
 def test_non_admin_cannot_reach_fpga_admin(client):
@@ -158,10 +159,18 @@ def test_import_creates_assets_and_missing_types(client, db):
     resp = upload(client, HEADER + "BL-01,Bora Lake,S1,Agilex 7,Cory 125,spare,no\n")
     assert resp.status_code == 303
 
-    asset = db.scalar(select(Asset).where(Asset.name == "BL-01"))
-    assert asset.type.name == "Bora Lake"
-    assert (asset.serial, asset.chip_mounted, asset.location) == ("S1", "Agilex 7", "Cory 125")
-    assert asset.retired is False
+    asset = query_one(
+        db,
+        "SELECT a.*, t.name AS type_name FROM asset a JOIN asset_type t ON t.id = a.type_id"
+        " WHERE a.name = 'BL-01'",
+    )
+    assert asset["type_name"] == "Bora Lake"
+    assert (asset["serial"], asset["chip_mounted"], asset["location"]) == (
+        "S1",
+        "Agilex 7",
+        "Cory 125",
+    )
+    assert asset["retired"] == 0
 
 
 def test_import_updates_existing_assets_by_name(client, db):
@@ -169,11 +178,10 @@ def test_import_updates_existing_assets_by_name(client, db):
     upload(client, HEADER + "BL-01,Bora Lake,S1,,,,no\n")
     upload(client, HEADER + "BL-01,Bora Lake,S2,,Soda 410,moved,yes\n")
 
-    assets = db.scalars(select(Asset).where(Asset.name == "BL-01")).all()
+    assets = query(db, "SELECT * FROM asset WHERE name = 'BL-01'")
     assert len(assets) == 1  # matched, not duplicated
-    db.expire_all()
     asset = assets[0]
-    assert (asset.serial, asset.location, asset.retired) == ("S2", "Soda 410", True)
+    assert (asset["serial"], asset["location"], asset["retired"]) == ("S2", "Soda 410", 1)
 
 
 def test_import_round_trips_the_export(client, db):
@@ -184,11 +192,10 @@ def test_import_round_trips_the_export(client, db):
 
     resp = upload(client, exported)
     assert resp.status_code == 303
-    db.expire_all()
-    [asset] = db.scalars(select(Asset)).all()
-    assert asset.name == "BL-01"
-    assert asset.notes == "=SUM(A1)"  # the export's anti-formula quote is undone
-    assert asset.location == "Cory 125"
+    [asset] = query(db, "SELECT * FROM asset")
+    assert asset["name"] == "BL-01"
+    assert asset["notes"] == "=SUM(A1)"  # the export's anti-formula quote is undone
+    assert asset["location"] == "Cory 125"
 
 
 def test_import_rejects_the_whole_file_on_a_bad_row(client, db):
@@ -198,7 +205,7 @@ def test_import_rejects_the_whole_file_on_a_bad_row(client, db):
     assert resp.status_code == 400
     assert "Row 3: name is required" in resp.text
     assert "Row 4: type is required" in resp.text
-    assert db.scalars(select(Asset)).all() == []  # nothing half-applied
+    assert query(db, "SELECT * FROM asset") == []  # nothing half-applied
 
 
 def test_import_rejects_duplicate_names_within_the_file(client, db):
@@ -206,7 +213,7 @@ def test_import_rejects_duplicate_names_within_the_file(client, db):
     resp = upload(client, HEADER + "BL-01,Bora Lake,,,,,no\nBL-01,Bora Lake,,,,,no\n")
     assert resp.status_code == 400
     assert "appears more than once" in resp.text
-    assert db.scalars(select(Asset)).all() == []
+    assert query(db, "SELECT * FROM asset") == []
 
 
 def test_import_rejects_a_bad_retired_value(client, db):

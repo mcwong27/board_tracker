@@ -36,24 +36,21 @@ domain-wide delegation.
    **JSON**. A `.json` file downloads to your machine. Treat it like a password.
 2. Note the service account's email address, which looks like
    `btrack-groups@your-project.iam.gserviceaccount.com`. You'll add this to both groups in step 5.
-3. Get the key's contents into `.env` one of two ways:
-   - **File on disk** (simplest for a bare-metal/VM deployment): copy the JSON file somewhere
-     readable only by the app (e.g. next to `.env`, outside the git repo), and set
-     `GOOGLE_SERVICE_ACCOUNT_FILE=/path/to/key.json`.
-   - **Inline JSON** (handy for Docker/compose, where mounting an extra file is annoying): set
-     `GOOGLE_SERVICE_ACCOUNT_JSON` to the full contents of the file as one line, e.g.
-     ```sh
-     GOOGLE_SERVICE_ACCOUNT_JSON='{"type":"service_account","project_id":"...", ...}'
-     ```
-   Set only one of the two; if both are set, the inline JSON wins.
+3. The key goes to Cloudflare as an encrypted secret (step 6). Keep the downloaded file out of
+   the git repo; once the secret is set you don't need it on disk.
 
 ## 5. Create the two Google Groups
 
 1. Go to [groups.google.com](https://groups.google.com/) (as yourself, with your `@berkeley.edu`
    account — you don't need Workspace admin rights to create a group you own).
-2. **Create group** for the users list, e.g. `btrack-users@berkeley.edu`. Add everyone who should
+
+   Berkeley's Google Groups are addressed `@lists.berkeley.edu`, **not** `@berkeley.edu` — a
+   different domain from the accounts signing in. That's expected: only the signing-in identity
+   is restricted to `@berkeley.edu`, and the group addresses are never domain-checked. Use
+   whatever address the group actually has.
+2. **Create group** for the users list, e.g. `btrack-users@lists.berkeley.edu`. Add everyone who should
    be able to sign in as a **Member**.
-3. **Create group** for the admins list, e.g. `btrack-admins@berkeley.edu`. Add everyone who
+3. **Create group** for the admins list, e.g. `btrack-admins@lists.berkeley.edu`. Add everyone who
    should get admin rights as a **Member**. (Admins should also be in the users group, or they
    won't pass the sign-in check — admin status doesn't imply sign-in access.)
 4. For **each** of the two groups: open **Group settings → Members → Add members**, add the
@@ -64,16 +61,29 @@ domain-wide delegation.
 Nested/child groups are **not** followed by this app (see the gotcha at the bottom) — members
 must be added directly to these two groups, not to a subgroup of them.
 
-## 6. Set the environment variables
+## 6. Point the app at the groups
 
-```sh
-GOOGLE_SERVICE_ACCOUNT_FILE=/path/to/key.json   # or GOOGLE_SERVICE_ACCOUNT_JSON='{...}'
-GOOGLE_USERS_GROUP=btrack-users@berkeley.edu
-GOOGLE_ADMINS_GROUP=btrack-admins@berkeley.edu
+The two group addresses are ordinary config, so they live in `wrangler.jsonc`:
+
+```jsonc
+"vars": {
+  "GOOGLE_USERS_GROUP": "btrack-users@lists.berkeley.edu",
+  "GOOGLE_ADMINS_GROUP": "btrack-admins@lists.berkeley.edu"
+}
 ```
 
-These are required whenever `DEV_LOGIN` is not `1` — the app refuses to start without them in
-that case (see `Settings.validate()` in `app/config.py`). With `DEV_LOGIN=1`, local sign-in uses a
+The key is a secret, so it goes in encrypted — paste the whole JSON file when prompted:
+
+```sh
+npx wrangler secret put GOOGLE_SERVICE_ACCOUNT_JSON
+```
+
+On Workers the key **must** be inline JSON: there is no filesystem, so
+`GOOGLE_SERVICE_ACCOUNT_FILE` only works when running locally under uvicorn, where either form
+is accepted (inline JSON wins if both are set).
+
+All three are required whenever `DEV_LOGIN` is not `1` — the app refuses to start without them
+(see `Settings.validate()` in `src/app/config.py`). With `DEV_LOGIN=1`, local sign-in uses a
 checkbox on the dev login form instead and never calls Google at all.
 
 ## How it works
@@ -89,7 +99,8 @@ someone from a group takes effect the next time they sign in, not immediately.
   Manager/Owner of the group being queried, or the Cloud Identity API isn't enabled on the
   project. Double-check step 2 and step 5.4.
 - **404 on a group lookup** (`groups:lookup`) — the group email doesn't exist, or isn't visible to
-  the service account. Check `GOOGLE_USERS_GROUP`/`GOOGLE_ADMINS_GROUP` for typos.
+  the service account. Check `GOOGLE_USERS_GROUP`/`GOOGLE_ADMINS_GROUP` for typos, and make sure
+  you used the group's real domain (`@lists.berkeley.edu` at Berkeley), not `@berkeley.edu`.
 - **404 on a membership check** (`memberships:lookup`) is *not* an error — it's the normal way the
   API says "this person is not a member," and the app treats it as such.
 - **A user who should have access is rejected** — check they were added as a **direct** member of
@@ -105,4 +116,6 @@ someone from a group takes effect the next time they sign in, not immediately.
 - **Sign-in fails with "temporarily unavailable"** — this means the Cloud Identity API call itself
   failed (bad/expired credentials, network error, 5xx from Google, etc.), and the app fails
   closed: it refuses to sign anyone in rather than guessing at group membership. Check the
-  application logs for the underlying error.
+  logs with `npx wrangler tail` for the underlying error.
+- **Checking which secrets are set** — `npx wrangler secret list`. Values are never readable
+  back, so to change a key just `put` it again.
