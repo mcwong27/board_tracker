@@ -1,66 +1,85 @@
 # bTrack
 
-FastAPI + Jinja (server-rendered, no JS framework) app for tracking who has which lab asset
-(boards, instruments, cables — admins define the types) plus a timeline of FPGA reservations.
-Berkeley-only Google sign-in, gated by Google Groups. Requirements: docs/spec.md.
+Server-rendered app for tracking who has which lab asset (boards, instruments, cables —
+admins define the types) plus a timeline of FPGA reservations. Berkeley-only Google
+sign-in, gated by Google Groups. Requirements: docs/spec.md.
 Setup: README.md. OAuth: docs/google-oauth.md. Groups: docs/google-groups.md.
 Deployment: docs/deployment.md.
 
-Runs as a **Python Worker on Cloudflare** (FastAPI on Pyodide) with data in **D1**.
-The same code runs locally under uvicorn against a SQLite file, which is what the tests use.
+A **TypeScript Cloudflare Worker**: Hono for routing, HTML from tagged template
+literals, data in **D1** (Cloudflare's managed SQLite) via plain SQL. No ORM, no
+client-side framework, no build step beyond esbuild-via-wrangler.
 
 ## Commands
-- Install deps: `uv sync`
-- Run locally (fast loop, SQLite, no Workers runtime):
-  `DEV_LOGIN=1 ENV=development uv run uvicorn --factory app.main:create_app --reload --app-dir src`
-  (tick the "admin" box on the dev login form to get admin rights)
-- Run on the real Workers runtime: `uv run pywrangler dev` (settings come from `.dev.vars`)
-- Create the local D1 schema once: `npx wrangler d1 execute btrack --local --file=migrations/0001_initial.sql`
-- Apply migrations to the deployed database: `npx wrangler d1 migrations apply btrack --remote`
-- Deploy: `uv run pywrangler deploy`
-- Test: `uv run pytest`
-- Lint/format: `uv run ruff check . && uv run ruff format --check .` (fix: `uv run ruff check --fix . && uv run ruff format .`)
+- Install: `npm install`
+- Run locally: `npm run dev` (wrangler dev; settings come from `.dev.vars`)
+- Create the local D1 schema once: `npm run db:local`
+- Apply migrations to the deployed database: `npm run db:remote`
+- Test: `npm test` (Vitest inside workerd, against a real local D1)
+- Typecheck: `npm run typecheck`
+- Regenerate binding types after editing wrangler.jsonc: `npx wrangler types`
+- Deploy: `npm run deploy`
 
 ## Layout
-Only `src/` is bundled into the Worker, so all Python and all templates live there.
-- `src/entry.py` Worker entry point; builds the app once per isolate from the bindings
-- `src/app/main.py` app factory (`create_app(settings, database=None)`), middleware, error handlers
-- `src/app/config.py` settings; `from_workers_env()` reads bindings, `from_env()` reads os.environ;
-  `Settings.validate()` refuses unsafe config
-- `src/app/db.py` the `Database` interface with two backends — `D1Database` (production) and
-  `SqliteDatabase` (tests/dev) — plus the `get_db` dependency
-- `src/app/models.py` row mappers between SQL text and Python values (no ORM)
-- `src/app/auth.py` identity validation, `CurrentUser` / `AdminUser` dependencies
-- `src/app/groups.py` Cloud Identity group-membership checks (the access list and admin rights)
-- `src/app/services.py` all business rules and SQL; routes in `src/app/routes/` stay thin
-- `src/app/routes/admin.py` every route here gets `require_admin` from the router; assets and the
-  FPGA inventory are separate for users but share the one admin page
-- `src/app/csrf.py` every POST route needs `dependencies=[Depends(verify_csrf)]` and forms need the hidden `csrf_token`
-- `src/app/urls.py` + `path()` template global: build URLs with these so a BASE_URL path prefix works
+- `src/index.ts` the Worker: middleware, route mounting, error handling
+- `src/context.ts` per-request plumbing — session, current user, `page()`/`redirect()`
+  helpers that keep the session cookie in sync
+- `src/db.ts` the D1 wrapper (`query`, `queryOne`, `value`, `run`, `batch`)
+- `src/html.ts` the `html` tagged template; it escapes every interpolation
+- `src/types.ts` domain shapes; `src/dates.ts` date/time helpers
+- `src/services/` all business rules and SQL — `assets.ts`, `fpga.ts`, `csv.ts`
+- `src/routes/` thin HTTP glue; `guards.ts` holds `requireUser`/`requireAdmin`/`assertCsrf`
+- `src/auth/` `session.ts` (signed cookies), `csrf.ts`, `oidc.ts` (Google sign-in),
+  `groups.ts` (Cloud Identity membership), `encoding.ts`
+- `src/views/` one module per page, plus `layout.ts` and `partials.ts`
 - `public/static/` style.css and app.js, served by the Workers assets binding at `/static/*`
-- `migrations/*.sql` D1 migrations, and the schema the tests build their SQLite file from
-- `tests/` pytest against `SqliteDatabase`; `wrangler.jsonc` bindings and vars
+- `migrations/*.sql` D1 migrations, and the schema the tests build from
+- `test/` Vitest specs; `test/helpers.ts` applies the real migration SQL
 
 ## Invariants
-- **Every route and dependency must be `async def`.** Workers has no threads, so FastAPI
-  running a sync handler or dependency in a threadpool raises "can't start new thread".
-- Runtime dependencies must work under Pyodide. Anything needing a C extension without a
-  WebAssembly wheel (uvicorn, pytest, ruff) belongs in the `dev` dependency group.
+- **Escape by default.** Build markup with `` html`` `` only. It escapes interpolations;
+  `raw()` opts out and should be rare and obvious. Never concatenate HTML strings.
+- **Every POST checks CSRF** via `assertCsrf(c, values)` in the route, and every form
+  carries the hidden `csrf_token`. `verifyCsrf` returns a boolean — never ignore it.
 - One active checkout per asset is enforced by the partial unique index
   `uq_checkout_active_asset`; don't rely on UI checks alone.
-- Write SQL once: D1 is SQLite, so the same statements run against both backends. Use
-  `db.batch()` when several writes must land together (it is the only atomic primitive D1 has).
-- Sign-in is restricted server-side to verified exact @berkeley.edu emails with `hd=berkeley.edu`
+- Use `db.batch()` when several writes must land together: it is D1's only atomic
+  primitive (there are no interactive transactions).
+- Sign-in requires a verified, exact `@berkeley.edu` address with `hd=berkeley.edu`
   AND membership of `GOOGLE_USERS_GROUP`. Admin rights come from `GOOGLE_ADMINS_GROUP`.
-  Both are checked once at sign-in and cached in the signed session; group lookups fail closed.
-- Only the holder or an admin may return an asset (`services.return_asset`).
-- Store naive UTC datetimes (`app.models.utcnow`); templates show local time via `|localtime`.
-  SQLite has no date types: datetimes are 'YYYY-MM-DD HH:MM:SS', dates 'YYYY-MM-DD'.
-- Asset types are fully admin-managed: a fresh database has none, and a type in use can't be deleted.
-- Pages: `/` is the signed-in user's own dashboard, `/assets` is the all-assets overview,
-  `/fpga` is the reservation timeline, `/admin` is the single admin page for both systems.
-- FPGA reservations are a shared calendar, not an allocator: booking more than a server holds is
-  allowed but flagged (`services.oversubscribed`). Only the creator or an admin may edit/delete one.
+  Both are checked once at sign-in and cached in the signed session; group lookups
+  **fail closed** — an API error refuses sign-in rather than granting it.
+- The ID token's signature is deliberately not verified: it arrives directly from
+  Google's token endpoint over TLS. That reasoning is documented in `oidc.ts` and stops
+  holding the moment a token arrives by any other route.
+- The OAuth `state` is checked before any network call, and consumed once.
+- Only the holder or an admin may return an asset; only the creator or an admin may
+  edit or delete an FPGA reservation.
+- Dates and datetimes are text, as SQLite stores them: `YYYY-MM-DD` and
+  `YYYY-MM-DD HH:MM:SS` (naive UTC). `localDateTime()` renders Berkeley local time.
+- Asset types are fully admin-managed: a fresh database has none, and a type in use
+  can't be deleted.
+- Pages: `/` is the signed-in user's own dashboard, `/assets` is the all-assets
+  overview, `/fpga` is the reservation timeline, `/admin` is the single admin page for
+  both systems. There is no BASE_URL path prefix support; deploy at a bare hostname.
+- FPGA reservations are a shared calendar, not an allocator: booking more than a server
+  holds is allowed but flagged (`oversubscribed`).
+- Inventory is a row per physical board (`fpga_unit`), not a count. Capacity is derived
+  by counting boards. Serials are optional — a board can exist before it is labelled —
+  and unique when present, enforced by the partial index `uq_fpga_unit_serial` (blank
+  serials are stored as NULL so they never collide). The timeline labels a board by its
+  serial, falling back to its position in the server.
+- Deleting an FPGA type or server is refused while any reservation references it; when
+  it is allowed, that type's or server's boards go with it. Same for asset types.
 - Themes: define colors as tokens on `:root`, override under both
-  `@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) }` and `:root[data-theme="dark"]`
-  so the toggle wins in both directions. Never give a color its only definition inside one of those.
+  `@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) }` and
+  `:root[data-theme="dark"]` so the toggle wins in both directions.
+
+## Testing
+Tests run in the real runtime (workerd) against a real local D1, so they catch
+runtime-specific behaviour. `test/integration.spec.ts` drives the Worker end to end
+through a cookie-jar client — note it sets `redirect: "manual"`, because a `Fetcher`
+follows redirects by default and would otherwise swallow the app's 303s.
+
+The D1 binding must never be marked `remote` in `wrangler.jsonc`: that points local dev
+and the test suite at the **deployed** database. `test/isolation.spec.ts` guards this.

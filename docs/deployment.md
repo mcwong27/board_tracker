@@ -1,10 +1,10 @@
 # Deploying bTrack on Cloudflare Workers
 
-The app runs as a Python Worker (FastAPI on Pyodide) with its data in D1, Cloudflare's
-managed SQLite. There is no server to maintain and no container to build.
+The app runs as a TypeScript Worker with its data in D1, Cloudflare's managed SQLite.
+There is no server to maintain and no container to build.
 
-You need a Cloudflare account and the `wrangler` CLI (`npx wrangler`, already a dev
-dependency). Everything below is run from the project root.
+You need a Cloudflare account, Node, and `npm install` already run. Everything below is
+run from the project root.
 
 ## 1. Sign in to Cloudflare
 
@@ -34,7 +34,7 @@ npx wrangler d1 migrations apply btrack --remote
 ```
 
 `migrations/0001_initial.sql` is the single source of truth for the schema: the same
-file builds the local SQLite database the tests run against. To change the schema, add
+file builds the database the tests run against. To change the schema, add
 `migrations/0002_*.sql` and apply it the same way.
 
 ## 4. Decide the hostname
@@ -84,7 +84,7 @@ Edit the rest of the `vars` block in `wrangler.jsonc`:
 Secrets never go in `wrangler.jsonc`; they are encrypted by Cloudflare.
 
 ```sh
-python3 -c "import secrets; print(secrets.token_urlsafe(48))" | npx wrangler secret put SECRET_KEY
+node -e "console.log(crypto.randomUUID()+crypto.randomUUID())" | npx wrangler secret put SECRET_KEY
 npx wrangler secret put GOOGLE_CLIENT_SECRET
 npx wrangler secret put GOOGLE_SERVICE_ACCOUNT_JSON   # paste the whole key JSON
 ```
@@ -97,7 +97,7 @@ JSON — Workers has no filesystem, so the file-path option isn't available ther
 ## 7. Deploy
 
 ```sh
-uv run pywrangler deploy
+npm run deploy
 ```
 
 ## 8. Put it on your own domain
@@ -110,7 +110,7 @@ Skip this if you're staying on workers.dev.
    and enter the full hostname, e.g. `stuff.example.edu`.
 3. Cloudflare creates the DNS record and issues the certificate itself. There's no CNAME to
    maintain by hand, and it usually takes under a minute.
-4. Check `BASE_URL` in `wrangler.jsonc` matches that hostname, then `uv run pywrangler deploy`
+4. Check `BASE_URL` in `wrangler.jsonc` matches that hostname, then `npm run deploy`
    again if you changed it.
 5. Once the custom domain serves the app, **disable the workers.dev route** in the same
    Domains & Routes panel. Leaving both live means two hostnames with separate sessions, and
@@ -131,15 +131,19 @@ of `GOOGLE_USERS_GROUP` to get in at all.
 Against a local D1 database, with the dev login form instead of Google:
 
 ```sh
-npx wrangler d1 execute btrack --local --file=migrations/0001_initial.sql   # once
-uv run pywrangler dev
+npm run db:local     # once
+npm run dev
 ```
 
 `.dev.vars` supplies the local settings (`DEV_LOGIN=1`) and is gitignored. Local state
 lives in `.wrangler/`.
 
-For a faster loop without the Workers runtime, the same app runs under uvicorn against a
-plain SQLite file — see README.md. The tests use that path, so they run in about a second.
+`npm test` runs the suite inside the same runtime against an isolated local D1, so tests
+exercise the real thing rather than a stand-in.
+
+**The D1 binding must never be marked `remote` in `wrangler.jsonc`.** That points local
+dev *and* the test suite at the deployed database. `test/isolation.spec.ts` guards
+against it by asserting the test database has none of the production tables.
 
 ## Backups
 
@@ -172,11 +176,16 @@ npx wrangler tail            # live logs from the deployed Worker
 - **500 on every page** — usually a missing secret. `npx wrangler secret list` shows which
   are set; `Settings.validate()` refuses to start without the Google config unless
   `DEV_LOGIN=1`.
-- **"can't start new thread"** — a route or dependency was defined as `def` instead of
-  `async def`. Workers has no threads, and FastAPI would otherwise run it in a threadpool.
+- **A path prefix in `BASE_URL`** — not supported. Deploy at a bare hostname; all links
+  in the app are absolute paths.
+- **Sign-in loops back to the login page** — the session cookie isn't sticking. Check
+  that `BASE_URL`'s scheme matches how you're actually reaching the site: over https the
+  cookie is marked `Secure` and a plain-http request won't send it back.
+- **Every page 500s right after a deploy** — check `npx wrangler tail`. A missing secret
+  is the usual cause; `npx wrangler secret list` shows which are set.
 - **Sign-in says you're not on the access list** — the account isn't a direct member of
   `GOOGLE_USERS_GROUP`. Nested groups are not followed; see
   [Google Groups setup](google-groups.md).
-- **Dependency fails to bundle** — it needs a C extension with no WebAssembly wheel. Keep
-  such packages (uvicorn, pytest, ruff) in the `dev` dependency group so they stay out of
-  the Worker bundle.
+- **A dependency fails to bundle** — it probably reaches for Node or browser APIs the
+  Workers runtime doesn't provide. Prefer the platform's own primitives (`fetch`,
+  `crypto.subtle`); the app deliberately has only one runtime dependency.

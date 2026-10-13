@@ -1,10 +1,10 @@
 {
 	"$schema": "node_modules/wrangler/config-schema.json",
 	"name": "btrack",
-	"main": "src/entry.py",
+	"main": "src/index.ts",
 	"compatibility_date": "2026-10-06",
 	"compatibility_flags": [
-		"python_workers"
+		"nodejs_compat"
 	],
 	"observability": {
 		"enabled": true
@@ -20,7 +20,6 @@
 			"binding": "DB",
 			"database_name": "btrack",
 			"database_id": "531c92ee-5780-4815-bc09-d1b1b993e806",
-			"remote": true,
 			"migrations_dir": "migrations"
 		}
 	],

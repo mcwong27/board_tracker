@@ -1,6 +1,6 @@
 # Google OAuth client setup
 
-The app signs people in with Google. You need an OAuth client ID and secret for `.env`.
+The app signs people in with Google. You need an OAuth client ID and secret.
 
 1. Go to the [Google Cloud Console](https://console.cloud.google.com/) and create a project (or
    pick an existing one), for example "Lab Board Tracker".
@@ -20,19 +20,24 @@ The app signs people in with Google. You need an OAuth client ID and secret for 
      `https://boards.example.berkeley.edu`
    - **Authorized redirect URIs:** `BASE_URL` + `/auth/callback`, e.g.
      `https://boards.example.berkeley.edu/auth/callback`. Also add
-     `http://localhost:8000/auth/callback` if you want to test real sign-in locally. If `BASE_URL`
-     has a path prefix, the redirect URI includes it: `https://host/boards/auth/callback`.
-5. Click **Create** and copy the **Client ID** and **Client secret** into `.env` as
-   `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`.
+     `http://localhost:8787/auth/callback` if you want to test real sign-in locally.
+5. Click **Create**. The **Client ID** goes in `wrangler.jsonc` under `vars` as
+   `GOOGLE_CLIENT_ID`; the **Client secret** is a secret:
+   `npx wrangler secret put GOOGLE_CLIENT_SECRET`. Locally both live in `.dev.vars`.
 
 If sign-in fails with `redirect_uri_mismatch`, the redirect URI in the console must match
 `BASE_URL/auth/callback` exactly, including scheme, host, path, and no trailing slash.
 
 ## Testing real sign-in locally
 
-Put your OAuth credentials in `.env` with `ENV=development`, `DEV_LOGIN=0` and
-`BASE_URL=http://localhost:8000`, then run:
+Put your OAuth credentials in `.dev.vars` with `ENV=development`, `DEV_LOGIN=0` and
+`BASE_URL=http://localhost:8787`, add `http://localhost:8787/auth/callback` to the
+client's authorized redirect URIs, then run:
 
 ```sh
-uv run --env-file .env uvicorn --factory app.main:create_app --reload
+npm run dev
 ```
+
+Real sign-in also needs the Cloud Identity setup from
+[Google Groups setup](google-groups.md), since group membership gates access. For most
+local work, leave `DEV_LOGIN=1` and skip both.

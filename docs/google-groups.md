@@ -78,13 +78,12 @@ The key is a secret, so it goes in encrypted — paste the whole JSON file when 
 npx wrangler secret put GOOGLE_SERVICE_ACCOUNT_JSON
 ```
 
-On Workers the key **must** be inline JSON: there is no filesystem, so
-`GOOGLE_SERVICE_ACCOUNT_FILE` only works when running locally under uvicorn, where either form
-is accepted (inline JSON wins if both are set).
+The key is always inline JSON: a Worker has no filesystem. Locally it goes in `.dev.vars`,
+which is gitignored.
 
-All three are required whenever `DEV_LOGIN` is not `1` — the app refuses to start without them
-(see `Settings.validate()` in `src/app/config.py`). With `DEV_LOGIN=1`, local sign-in uses a
-checkbox on the dev login form instead and never calls Google at all.
+All three are needed for real sign-in. With `DEV_LOGIN=1` the dev login form is used
+instead — it has an admin checkbox and never calls Google at all, so none of this setup
+is required to work on the app locally.
 
 ## How it works
 
